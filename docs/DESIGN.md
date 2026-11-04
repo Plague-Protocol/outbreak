@@ -28,6 +28,8 @@ never the reason to play. Where earning is possible it is a small bonus, not the
 - **Inside MiniPay:** the wallet is already connected (zero-click). Do not show a sign-in
   UI there. Reach MiniPay's provider with `EIP1193.fromProvider({ provider: window.ethereum })`
   (see `plague-celo` notes on thirdweb v5 and `createWallet('io.metamask')`).
+- **MiniPay is the easy path:** no sign-in step at all, so MiniPay users go straight to
+  playing. Sign-in is for everyone outside MiniPay.
 - **Why:** traction and retention need an account to attach progress to, and the same
   account is the base for staking and the one-account-per-person city lock later.
 - **Limits:** a Google or passkey account is friction against multi-accounting, not proof
@@ -94,9 +96,19 @@ Real-money earnings wait until there is a funded source for them.
 2. **Outcomes are decided off-chain.** Randomized tasks and PvP kills can't be verified
    on-chain, so a backend signs results and a contract pays out. Players trust that backend.
    Anti-cheat (speed hacks, scripted runs) gets harder once money is involved.
-3. **New contracts are required.** `PlagueGame` is ~23.4 KB of 24.5 KB and not upgradeable;
-   do not extend it. This game gets its own escrow/settlement contract and its own
-   MiniPay allowlist submission.
+3. **New contracts are required, and they must be upgradable.** `PlagueGame` is ~23.4 KB
+   of 24.5 KB and not upgradeable; do not extend it. This game gets its own
+   escrow/settlement contracts behind proxies (UUPS or transparent), and its own MiniPay
+   allowlist submission. Notes:
+   - MiniPay allowlists by contract address and selector. A proxy keeps one stable address
+     across upgrades, so the address-level submission survives. **New or changed
+     selectors still need re-submitting**, so keep the external interface small and stable.
+   - Upgrade authority can redirect staked funds. Put it behind a multisig plus a
+     timelock, and say so publicly. Do not give it to a single EOA.
+   - Keep each implementation under the 24,576-byte limit (split into modules rather than
+     one large contract), and plan storage layout (gaps, no reordering) from day one.
+   - Consider holding funds in a minimal escrow with a narrow settlement interface, so
+     most game-logic upgrades never touch custody.
 4. **One account per person** is needed for the city lock to mean anything.
    Proof-of-personhood is the likely route.
 5. **Real-money skill/PvP games are regulated in many places** and may conflict with
