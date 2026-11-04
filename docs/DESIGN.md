@@ -15,9 +15,25 @@ local flavour (Lagos first) and sell local ad inventory.
 
 ## Design principle: fun first, money second
 
-The game must be worth playing with no wallet connected. Staking and earnings are an
-optional layer on top, never the reason to play. Where earning is possible it should be a
-small bonus, not the hook.
+The game must be fun in its own right. Staking and earnings are an optional layer on top,
+never the reason to play. Where earning is possible it is a small bonus, not the hook.
+
+## Access: trial, then sign-in
+
+- **Trial (no sign-in):** a short sample, such as the first part of city 1, so a new
+  visitor can try the loop in seconds. No saved progress.
+- **Full game (sign-in required):** sign in with Google or a passkey through thirdweb
+  in-app wallets, so non-crypto users get a wallet without knowing they have one.
+  Progress, funds, gear and city unlocks are tied to that account.
+- **Inside MiniPay:** the wallet is already connected (zero-click). Do not show a sign-in
+  UI there. Reach MiniPay's provider with `EIP1193.fromProvider({ provider: window.ethereum })`
+  (see `plague-celo` notes on thirdweb v5 and `createWallet('io.metamask')`).
+- **Why:** traction and retention need an account to attach progress to, and the same
+  account is the base for staking and the one-account-per-person city lock later.
+- **Limits:** a Google or passkey account is friction against multi-accounting, not proof
+  of personhood. Do not treat it as sybil resistance for real-money rewards.
+- **Gas:** an in-app wallet has no CELO. Anything that goes on-chain for these users
+  needs sponsored gas. Not needed until phase 3.
 
 ## Core loop
 
@@ -61,7 +77,7 @@ gear or funds.
 
 | Phase | Scope | Money | Server |
 |---|---|---|---|
-| 1 | Free single-player, **up to 3 cities** | None | None — static site, seed in browser |
+| 1 | Free single-player, **up to 3 cities** (trial without sign-in, full game with it) | None | Minimal: auth + progress storage. Game itself runs in the browser |
 | 2 | Free multiplayer, PvP kills until safe | None | Small real-time game server |
 | 3 | Staked PvP rooms | Player stakes only | Authoritative server + outcome signer |
 | 4 | Optional small earnings in single player | Needs a funder (see below) | Same |
@@ -96,7 +112,9 @@ Real-money earnings wait until there is a funded source for them.
 - **Randomization:** deterministic seed → task/item placement. Same function runs in the
   browser now and on the server in phase 2, so phase 2 doesn't rewrite it.
 - **State:** a pure game-state module with no DOM dependencies, so it can move to the server.
-- **Hosting:** static build on Vercel or Cloudflare. No server in phase 1.
+- **Hosting:** static build on Vercel or Cloudflare for the game itself. Because the full
+  game needs saved progress per account, phase 1 also needs a small backend (auth
+  verification + progress store). It is not a real-time server.
 - **Dependencies:** exact-pinned versions, committed lockfile, `ignore-scripts=true`
   (MiniPay listing requirements). 7-day minimum package age.
 - **Scope for phase 1:** up to 3 cities, each with its own layout, task pool and
