@@ -22,17 +22,25 @@ pixel ratio, `?lights=0..6` number of real point lights, `?zoom=N` camera span.
 ## Playing
 
 - **Move:** drag anywhere (floating stick) or WASD. A light push walks, a full push runs.
-- **Fire:** hold FIRE (or Space). Aim assist picks the zombie in front of you. Gunfire is loud:
-  everything within earshot comes looking.
-- **Use:** the contextual button (or E): start an objective, search a supply crate, shop at
-  Halden Guns, get in or out of a vehicle. **Reload** (R) and **swap weapon** (Q) buttons.
+- **Fire / swing:** hold FIRE (or Space). Aim assist picks the zombie in front of you. Gunfire
+  is loud: everything within earshot comes looking. With a melee weapon the button reads SWING.
+- **Use:** the contextual button (or E): start an objective, search a supply crate, enter a
+  weapon store, get in or out of a vehicle. **Reload** (R) and **swap weapon** (Q) buttons.
+- **Objectives are safe:** while you work an objective or talk to someone (and for a second
+  after), the zombies that were after you hold back and wait. Anything you take (keys, keycard,
+  map, supplies) lies where you can see it and is gone once taken.
 - **Drive:** push the stick where you want to go and the car steers there; push back against the
   nose to reverse. Run zombies down. Crashes and clawing zombies damage the vehicle until it dies.
 - **Map:** the minimap (top right) is rotated to match the screen. Tap it or press M for the full
   city map (pauses the game).
-- **Weapons:** you start with a pistol. A shotgun and an assault rifle lie somewhere in the
-  streets, with ammo boxes. Halden Guns sells guns, ammo and medkits for the money you get from
-  supply crates, the survivor, and kills.
+- **Weapons:** you start with a pistol and a police baton. Baseball bats, a machete, shotguns and
+  an assault rifle lie in the streets, with ammo cans. Melee is quiet and never runs dry: a bat
+  can hit three at once, a machete drops a walker in one hit, but you have to be close.
+- **Weapon stores:** three per night (Halden Arms and others), lit storefronts with a rooftop
+  sign. Walk in through the door (or press ENTER) and the game pauses on the store's page:
+  weapons with their stats, upgrades (damage, extended magazine, fast reload; two levels each),
+  ammo, medkits. Buy, and equip what you want in hand. Money comes from supply crates, the
+  survivor, and kills.
 - **Health:** a lunge hurts and knocks you back; the third kills. Shoot a zombie during its
   wind-up to spoil the lunge. Medkits heal.
 
@@ -67,7 +75,7 @@ out of sight as the clock runs down.
 
 Bodies and skins: Kenney "Animated Characters 3" (CC0). Animations: Quaternius "Universal
 Animation Library" 1 and 2 (CC0): locomotion, death, hit, pistol aim/shoot/reload, interact,
-kneel, and the zombie idle, shuffle, lunge and rise. `tools/convert-characters.mjs` retargets them
+kneel, two one-handed melee swings, and the zombie idle, shuffle, lunge and rise. `tools/convert-characters.mjs` retargets them
 onto the Kenney skeleton and measures each walk/run cycle's ground speed so feet never slide. Gun
 poses play on the upper body only, over whatever the legs are doing. Credits:
 `public/assets/characters/CREDITS.md`. Preview clips at `/tools/preview.html` under `npm run dev`.
@@ -76,13 +84,14 @@ poses play on the upper body only, over whatever the legs are doing. Credits:
 
 | | Budget | Measured (worst case: 18 zombies around the player) |
 |---|---|---|
-| Draw calls | <= 30 | 28 (city chunks in view, 12 zombie characters, player, props) |
-| Triangles | <= 35,000 | ~29,600 |
+| Draw calls | <= 40 | 27-36 (city chunks in view, 12 zombie characters, player, a store, props) |
+| Triangles | <= 40,000 | ~29,500-36,500 |
 | Real lights | small | hemisphere + moon + flashlight/headlights + fill + 3 pooled + muzzle flash |
 | Zombie characters drawn | 12 nearest | the rest are simulated or dormant, not drawn |
-| JS bundle (gzip) | <= 200 KB | 192 KB |
-| Character assets (gzip) | <= 450 KB | ~411 KB (GLB 267 KB + 4 skins 144 KB) |
+| JS bundle (gzip) | <= 200 KB | 199.7 KB (at the limit) |
+| Character assets (gzip) | <= 450 KB | ~426 KB (GLB 282 KB + 4 skins 144 KB) |
 
-Measured with `?debug` (`renderer.info`) in headless desktop Chrome with software rendering, so
+The worst case was measured at a store's door with 18 zombies around, on three nights; the
+busiest downtown spot reached 36 calls. Measured with `?debug` (`renderer.info`) in headless desktop Chrome with software rendering, so
 the frame rates it shows mean nothing for a phone. **Not yet measured on a real Android phone.**
 The levers there: `?lights=0`, `?dpr=1`, fewer zombie characters drawn.
