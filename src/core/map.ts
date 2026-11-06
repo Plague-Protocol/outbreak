@@ -1,4 +1,4 @@
-import { createRng, chance, range, int } from './rng';
+import { createRng, chance, range } from './rng';
 import type { Building, MapData, Vec2 } from './types';
 
 export const BLOCKS = 5;
@@ -23,7 +23,7 @@ export function generateMap(seed: number): MapData {
         x: bx + range(rng, 0, BLOCK - w),
         y: by + range(rng, 0, BLOCK - h),
         w, h,
-        height: int(rng, 2, 6),
+        height: range(rng, 1.6, 3.4),
         tone: range(rng, 0, 1),
       });
     }

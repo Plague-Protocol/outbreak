@@ -1,5 +1,5 @@
 import {
-  AmbientLight, BoxGeometry, Color, CylinderGeometry, DirectionalLight, InstancedMesh, Matrix4, Mesh,
+  AmbientLight, GreaterDepth, BoxGeometry, Color, CylinderGeometry, DirectionalLight, InstancedMesh, Matrix4, Mesh,
   MeshBasicMaterial, MeshLambertMaterial, Object3D, OrthographicCamera, Scene, Vector3, WebGLRenderer,
 } from 'three';
 import { MeshBuilder } from './mesh';
@@ -7,7 +7,7 @@ import { currentTask, requiredDone, type GameState } from '../core/state';
 import { TASK_RADIUS, SAFEHOUSE_RADIUS, ZOMBIE_CAP } from '../core/config';
 import type { Vec2 } from '../core/types';
 
-const VIEW_MIN_UNITS = 20; // visible world width/height on the shorter screen axis
+const VIEW_MIN_UNITS = 24; // visible world width/height on the shorter screen axis
 const CAM_DIST = 40;
 const CAM_DIR = new Vector3(1, 1, 1).normalize();
 
@@ -17,7 +17,9 @@ export class GameView {
   private camera = new OrthographicCamera(-1, 1, 1, -1, 1, 200);
   private city!: Mesh;
   private player: Mesh;
+  private playerXray: Mesh;
   private zombies: InstancedMesh;
+  private zombieXray: InstancedMesh;
   private pads: InstancedMesh;
   private beams: InstancedMesh;
   private target = new Vector3();
@@ -46,6 +48,12 @@ export class GameView {
       .build();
     this.player = new Mesh(pg, new MeshLambertMaterial({ vertexColors: true }));
     this.scene.add(this.player);
+    // silhouettes drawn only where something is hidden behind a building
+    const xray = (color: number) => new MeshBasicMaterial({
+      color, depthFunc: GreaterDepth, depthWrite: false, transparent: true, opacity: 0.5,
+    });
+    this.playerXray = new Mesh(pg, xray(0x7fb8ff));
+    this.scene.add(this.playerXray);
 
     // Zombies: instanced, one draw call. Arms out front (+z is forward).
     const zg = new MeshBuilder()
@@ -58,6 +66,11 @@ export class GameView {
     this.zombies.frustumCulled = false;
     this.zombies.count = 0;
     this.scene.add(this.zombies);
+    this.zombieXray = new InstancedMesh(zg, xray(0xff6a5a), ZOMBIE_CAP);
+    this.zombieXray.instanceMatrix = this.zombies.instanceMatrix; // share transforms
+    this.zombieXray.frustumCulled = false;
+    this.zombieXray.count = 0;
+    this.scene.add(this.zombieXray);
 
     // Task + safehouse markers: ground pad and tall beacon, instanced (max 6 tasks + safehouse)
     const markerMat = new MeshBasicMaterial();
@@ -131,10 +144,14 @@ export class GameView {
     this.player.position.set(p.x, Math.abs(Math.sin(time * 12)) * 0.05, p.y);
     this.player.rotation.y = Math.PI / 2 - s.player.heading;
     this.player.visible = s.phase !== 'lost' || s.lossReason !== 'caught';
+    this.playerXray.visible = this.player.visible;
+    this.playerXray.position.copy(this.player.position);
+    this.playerXray.rotation.copy(this.player.rotation);
 
     // zombies
     const zs = s.zombies;
     this.zombies.count = zs.length;
+    this.zombieXray.count = zs.length;
     for (let i = 0; i < zs.length; i++) {
       const z = zs[i]!;
       this.tmp.position.set(z.pos.x, Math.abs(Math.sin(time * 7 + z.id)) * 0.08, z.pos.y);
