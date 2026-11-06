@@ -5,14 +5,27 @@ import {
   RUN_OVER_SPEED, RUNNER_SIGHT, RUNNER_SPEED, SAFEHOUSE_RADIUS, SPAWNS_BY_TIER, SPEED_BOOST, TASK_HOLD_SECONDS,
   TASK_RADIUS, TIER_THRESHOLDS, USE_RADIUS, VEHICLES, WALKER_SIGHT_BY_TIER, WALKER_SPEED_BY_TIER, WAVE_SPAWN_MAX_DIST,
   ZOMBIE_ACTIVE_RADIUS, ZOMBIE_CAP, ZOMBIE_RADIUS, ZOMBIE_SPAWN_MIN_DIST, ZOMBIES_PER_BLOCK,
+  AIM_CONE, ALERT_SECONDS, KILL_REWARD, PICKUP_RADIUS, STAGGER_SECONDS, START_AMMO, START_FUNDS, STORE_PRICES, WEAPONS,
+  ZOMBIE_HEALTH,
 } from './config';
+import { nearbyObstacles } from './collision';
 import { lineClear, resolve } from './collision';
 import { generateLevel, type Level } from './level';
 import { cellOf, distanceField, UNREACHABLE } from './map';
 import { createRng, next, pick, range, type Rng } from './rng';
 import type {
-  Crate, GameEvent, Input, Interaction, LossReason, MapData, Phase, Task, TaskId, Vec2, Vehicle, Zombie, ZombieKind,
+  Crate, GameEvent, Input, Interaction, LossReason, MapData, Phase, Pickup, Store, StoreItem, Task, TaskId, Vec2,
+  Vehicle, WeaponKind, Zombie, ZombieKind,
 } from './types';
+
+export interface Arsenal {
+  weapon: WeaponKind | null; // in hand
+  owned: WeaponKind[];
+  mag: Record<WeaponKind, number>; // rounds in the magazine
+  ammo: Record<WeaponKind, number>; // spare rounds
+  fireCd: number;
+  reloadT: number; // seconds left on a reload (0 = not reloading)
+}
 
 export interface GameState {
   seed: number;
@@ -25,6 +38,10 @@ export interface GameState {
   remaining: number;
   tier: number;
   player: { pos: Vec2; vel: Vec2; heading: number; health: number; invuln: number; vehicleId: number | null };
+  arsenal: Arsenal;
+  pickups: Pickup[];
+  store: Store;
+  kills: number;
   /** Zombie that caught the player, if any (the renderer stages the ending around it). */
   killerId: number | null;
   zombies: Zombie[];
@@ -62,6 +79,15 @@ export function createGame(seed: number, level: Level = generateLevel(seed)): Ga
     tier: 0,
     player: { pos: { ...level.spawn }, vel: { x: 0, y: 0 }, heading: 0, health: PLAYER_HEALTH, invuln: 0, vehicleId: null },
     killerId: null,
+    arsenal: {
+      weapon: 'pistol', owned: ['pistol'],
+      mag: { pistol: WEAPONS.pistol.mag, shotgun: 0, rifle: 0 },
+      ammo: { ...START_AMMO },
+      fireCd: 0, reloadT: 0,
+    },
+    pickups: level.pickups.map((p) => ({ ...p, pos: { ...p.pos } })),
+    store: { ...level.store, pos: { ...level.store.pos } },
+    kills: 0,
     zombies: [],
     vehicles: level.vehicles.map((v) => ({ ...v, pos: { ...v.pos } })),
     crates: level.crates.map((c) => ({ ...c, pos: { ...c.pos } })),
@@ -71,7 +97,7 @@ export function createGame(seed: number, level: Level = generateLevel(seed)): Ga
     hold: { taskId: null, progress: 0 },
     speedMul: 1,
     zombieMul: 1,
-    funds: 0,
+    funds: START_FUNDS,
     events: [],
     flow: new Int16Array(level.map.cols * level.map.cols),
     flowCell: -1,
@@ -139,6 +165,7 @@ function addZombie(s: GameState, kind: ZombieKind, pos: Vec2, rising: boolean): 
   s.zombies.push({
     id: s.nextZombieId++, kind, pos, heading: next(s.rng) * Math.PI * 2, speed: 0,
     action: rising ? 'rise' : 'idle', actionT: rising ? RISE_SECONDS : 0, cooldown: 0,
+    health: ZOMBIE_HEALTH[kind], staggerT: 0, alertT: 0,
     wanderT: range(s.rng, 0, 3), wanderDir: { x: 0, y: 0 },
   });
 }
@@ -216,6 +243,10 @@ export function step(s: GameState, input: Input, dt: number): GameState {
 
   if (input.action) interact(s);
   s.player.invuln = Math.max(0, s.player.invuln - dt);
+  if (s.player.vehicleId === null) {
+    updateWeapons(s, input, dt);
+    takePickups(s);
+  }
 
   const driving = playerVehicle(s);
   if (driving) drive(driving, input, dt);
@@ -256,6 +287,7 @@ export function interactionFor(s: GameState): Interaction | null {
   const p = s.player.pos;
   const task = s.tasks.find((t) => !t.done && s.hold.taskId !== t.id && dist(t.pos, p) < TASK_RADIUS);
   if (task) return { kind: 'task', taskId: task.id };
+  if (dist(s.store.pos, p) < USE_RADIUS) return { kind: 'store' };
   const crate = s.crates.find((c) => !c.opened && dist(c.pos, p) < USE_RADIUS * 0.75);
   if (crate) return { kind: 'crate', crateId: crate.id };
   let best: Vehicle | null = null, bestD = 1.6;
@@ -289,6 +321,9 @@ function interact(s: GameState): void {
       s.events.push({ type: 'task-started', id: t.id });
       break;
     }
+    case 'store':
+      s.events.push({ type: 'store-open' });
+      break;
     case 'crate': {
       const c = s.crates.find((x) => x.id === it.crateId)!;
       c.opened = true;
@@ -298,8 +333,187 @@ function interact(s: GameState): void {
         s.player.health = Math.min(PLAYER_HEALTH, s.player.health + MEDKIT_HEAL);
         s.events.push({ type: 'healed', amount: s.player.health - before });
       } else if (c.loot === 'supplies') s.funds += 25;
+      else if (c.loot === 'ammo') {
+        const w = s.arsenal.weapon ?? 'pistol';
+        const n = Math.ceil(WEAPONS[w].ammoPack / 2);
+        s.arsenal.ammo[w] += n;
+        s.events.push({ type: 'pickup', kind: 'ammo', amount: n });
+      }
       break;
     }
+  }
+}
+
+// ---------------------------------------------------------------- weapons, pickups and the store
+
+function takePickups(s: GameState): void {
+  const a = s.arsenal;
+  for (const pk of s.pickups) {
+    if (pk.taken || dist(pk.pos, s.player.pos) > PICKUP_RADIUS) continue;
+    pk.taken = true;
+    if (pk.kind === 'ammo') {
+      // ammo for whatever is in hand (or the pistol)
+      const w = a.weapon ?? 'pistol';
+      a.ammo[w] += WEAPONS[w].ammoPack;
+      s.events.push({ type: 'pickup', kind: 'ammo', amount: WEAPONS[w].ammoPack });
+    } else {
+      giveWeapon(s, pk.kind);
+      s.events.push({ type: 'pickup', kind: pk.kind, amount: WEAPONS[pk.kind].mag });
+    }
+  }
+}
+
+function giveWeapon(s: GameState, w: WeaponKind): void {
+  const a = s.arsenal;
+  if (a.owned.includes(w)) {
+    a.ammo[w] += WEAPONS[w].ammoPack;
+  } else {
+    a.owned.push(w);
+    a.mag[w] = WEAPONS[w].mag;
+    a.ammo[w] += WEAPONS[w].ammoPack;
+  }
+  a.weapon = w; // pick it up, hold it
+  a.reloadT = 0;
+}
+
+/** Buy from the gun store. Pure: returns false (and changes nothing) if you cannot afford it. */
+export function buy(s: GameState, item: StoreItem): boolean {
+  const price = STORE_PRICES[item];
+  if (s.funds < price) return false;
+  if ((item === 'shotgun' || item === 'rifle') && s.arsenal.owned.includes(item)) return false;
+  s.funds -= price;
+  const a = s.arsenal;
+  switch (item) {
+    case 'pistol-ammo': a.ammo.pistol += WEAPONS.pistol.ammoPack; break;
+    case 'shotgun-ammo': a.ammo.shotgun += WEAPONS.shotgun.ammoPack; break;
+    case 'rifle-ammo': a.ammo.rifle += WEAPONS.rifle.ammoPack; break;
+    case 'shotgun': case 'rifle': giveWeapon(s, item); break;
+    case 'medkit': s.player.health = Math.min(PLAYER_HEALTH, s.player.health + MEDKIT_HEAL); break;
+  }
+  s.events.push({ type: 'purchase', item });
+  return true;
+}
+
+/** Where the first obstacle blocks a ray, as a distance (Infinity if none within range). */
+function rayToWall(s: GameState, from: Vec2, dx: number, dy: number, range: number): number {
+  const near: number[] = [];
+  for (let t = 0.5; t <= range; t += 0.5) {
+    const x = from.x + dx * t, y = from.y + dy * t;
+    if (x < 0 || y < 0 || x > s.map.size || y > s.map.size) return t;
+    for (const idx of nearbyObstacles(s.map, { x, y }, 0.1, near)) {
+      const b = s.map.buildings[idx]!;
+      if (b.kind === 'water' || b.height < 1.2) continue; // shoot over water, fences, barrels
+      if (x > b.x && x < b.x + b.w && y > b.y && y < b.y + b.h) return t;
+    }
+  }
+  return Infinity;
+}
+
+/** Aim assist: the best zombie in front of you within range and in the open, if any. */
+export function aimTarget(s: GameState, w: WeaponKind): Zombie | null {
+  const p = s.player.pos;
+  let best: Zombie | null = null, bestScore = Infinity;
+  for (const z of s.zombies) {
+    if (z.action === 'dead') continue;
+    const dx = z.pos.x - p.x, dy = z.pos.y - p.y, d = Math.hypot(dx, dy);
+    if (d > WEAPONS[w].range || d < 1e-3) continue;
+    const off = Math.abs(wrap(Math.atan2(dy, dx) - s.player.heading));
+    if (off > AIM_CONE && d > 3) continue; // behind you, unless it is right on top of you
+    if (rayToWall(s, p, dx / d, dy / d, d) < d) continue;
+    const score = d + off * 6;
+    if (score < bestScore) { bestScore = score; best = z; }
+  }
+  return best;
+}
+
+function hurtZombie(s: GameState, z: Zombie, damage: number, dirX: number, dirY: number): void {
+  z.health -= damage;
+  z.alertT = ALERT_SECONDS;
+  if (z.health <= 0) {
+    z.action = 'dead';
+    z.actionT = CORPSE_SECONDS;
+    z.speed = 0;
+    z.heading = Math.atan2(-dirY, -dirX); // falls away from the shot
+    s.kills++;
+    s.funds += KILL_REWARD;
+    s.events.push({ type: 'zombie-killed', id: z.id });
+    return;
+  }
+  // a hit makes it flinch, and spoils a lunge
+  z.staggerT = STAGGER_SECONDS;
+  if (z.action === 'attack') { z.action = 'chase'; z.cooldown = ATTACK_COOLDOWN * 0.5; }
+  z.pos.x += dirX * 0.25;
+  z.pos.y += dirY * 0.25;
+  s.events.push({ type: 'zombie-hurt', id: z.id });
+}
+
+function startReload(s: GameState, w: WeaponKind): void {
+  const a = s.arsenal;
+  if (a.reloadT > 0 || a.ammo[w] <= 0 || a.mag[w] >= WEAPONS[w].mag) return;
+  a.reloadT = WEAPONS[w].reload;
+  s.events.push({ type: 'reload', weapon: w });
+}
+
+function updateWeapons(s: GameState, input: Input, dt: number): void {
+  const a = s.arsenal;
+  a.fireCd = Math.max(0, a.fireCd - dt);
+  if (input.swap && a.owned.length > 1) {
+    const i = a.weapon ? a.owned.indexOf(a.weapon) : -1;
+    a.weapon = a.owned[(i + 1) % a.owned.length]!;
+    a.reloadT = 0;
+    a.fireCd = 0.25;
+  }
+  const w = a.weapon;
+  if (!w) return;
+  const spec = WEAPONS[w];
+  if (a.reloadT > 0) {
+    a.reloadT -= dt;
+    if (a.reloadT <= 0) {
+      a.reloadT = 0;
+      const take = Math.min(spec.mag - a.mag[w], a.ammo[w]);
+      a.mag[w] += take;
+      a.ammo[w] -= take;
+    }
+    return;
+  }
+  if (input.reload) { startReload(s, w); return; }
+  if (!input.fire || a.fireCd > 0) return;
+  if (a.mag[w] <= 0) {
+    if (a.ammo[w] > 0) startReload(s, w);
+    else { s.events.push({ type: 'empty', weapon: w }); a.fireCd = 0.4; }
+    return;
+  }
+
+  // aim: snap to the best target in front, otherwise fire where you face
+  const p = s.player.pos;
+  const target = aimTarget(s, w);
+  const aim = target ? Math.atan2(target.pos.y - p.y, target.pos.x - p.x) : s.player.heading;
+  s.player.heading = aim;
+  a.mag[w]--;
+  a.fireCd = spec.interval;
+
+  for (let k = 0; k < spec.pellets; k++) {
+    const ang = aim + (next(s.rng) - 0.5) * spec.spread;
+    const dx = Math.cos(ang), dy = Math.sin(ang);
+    const wall = rayToWall(s, p, dx, dy, spec.range);
+    const reach = Math.min(spec.range, wall);
+    // first zombie the ray passes through
+    let hit: Zombie | null = null, hitT = reach;
+    for (const z of s.zombies) {
+      if (z.action === 'dead') continue;
+      const ox = z.pos.x - p.x, oy = z.pos.y - p.y;
+      const t = ox * dx + oy * dy;
+      if (t <= 0 || t >= hitT) continue;
+      if (Math.abs(ox * dy - oy * dx) > ZOMBIE_RADIUS + 0.2) continue;
+      hit = z; hitT = t;
+    }
+    if (hit) hurtZombie(s, hit, spec.damage * (hitT > spec.range * 0.6 ? 0.7 : 1), dx, dy);
+    if (k === 0) s.events.push({ type: 'shot', weapon: w, from: { ...p }, to: { x: p.x + dx * hitT, y: p.y + dy * hitT }, hit: hit?.id ?? null });
+  }
+
+  // gunfire carries: everything within earshot comes looking
+  for (const z of s.zombies) {
+    if (z.action !== 'dead' && z.action !== 'rise' && dist(z.pos, p) < spec.noise) z.alertT = Math.max(z.alertT, ALERT_SECONDS);
   }
 }
 
@@ -440,6 +654,8 @@ function moveVehicle(s: GameState, v: Vehicle, dt: number, driven: boolean): voi
         z.speed = 0;
         z.heading = v.heading + Math.PI; // falls back from the bumper
         v.speed *= 0.9;
+        s.kills++;
+        s.funds += KILL_REWARD;
         s.events.push({ type: 'zombie-killed', id: z.id });
         damageVehicle(s, v, spec.health * 0.03);
       } else {
@@ -526,6 +742,12 @@ function updateZombies(s: GameState, dt: number): void {
       if (z.actionT <= 0) z.action = 'idle';
       continue;
     }
+    z.alertT = Math.max(0, z.alertT - dt);
+    if (z.staggerT > 0) {
+      z.staggerT -= dt;
+      z.speed = 0;
+      continue;
+    }
 
     if (z.action === 'attack') {
       z.speed = 0;
@@ -560,7 +782,7 @@ function updateZombies(s: GameState, dt: number): void {
       continue;
     }
 
-    const sight = z.kind === 'runner' ? RUNNER_SIGHT : WALKER_SIGHT_BY_TIER[s.tier]!;
+    const sight = z.alertT > 0 ? Infinity : z.kind === 'runner' ? RUNNER_SIGHT : WALKER_SIGHT_BY_TIER[s.tier]!;
     const chaseSpeed = (z.kind === 'runner' ? RUNNER_SPEED : WALKER_SPEED_BY_TIER[s.tier]!) * s.zombieMul;
 
     if (d < ATTACK_RANGE + reachBonus && z.cooldown <= 0 && !(car && Math.abs(car.speed) > 3)) {

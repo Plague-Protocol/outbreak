@@ -93,6 +93,9 @@ export interface Zombie {
   action: ZombieAction;
   actionT: number; // seconds left in a timed action (rise, attack wind-up)
   cooldown: number; // seconds before it can attack again
+  health: number;
+  staggerT: number; // flinching from a hit: no moving, no lunging
+  alertT: number; // heard gunfire: hunts the player regardless of sight
   wanderT: number;
   wanderDir: Vec2;
 }
@@ -110,7 +113,26 @@ export interface Vehicle {
   tone: number; // paint, visual only
 }
 
-export type Loot = 'medkit' | 'supplies' | 'empty';
+export type Loot = 'medkit' | 'supplies' | 'ammo' | 'empty';
+
+export type WeaponKind = 'pistol' | 'shotgun' | 'rifle';
+
+export type PickupKind = WeaponKind | 'ammo';
+
+/** Lying in the street: walk over it to take it. */
+export interface Pickup {
+  id: number;
+  kind: PickupKind;
+  pos: Vec2;
+  taken: boolean;
+}
+
+export type StoreItem = 'pistol-ammo' | 'shotgun' | 'shotgun-ammo' | 'rifle' | 'rifle-ammo' | 'medkit';
+
+export interface Store {
+  pos: Vec2; // the counter, on the pavement
+  name: string;
+}
 
 export interface Crate {
   id: number;
@@ -124,7 +146,8 @@ export type Interaction =
   | { kind: 'exit'; vehicleId: number }
   | { kind: 'enter'; vehicleId: number }
   | { kind: 'task'; taskId: TaskId }
-  | { kind: 'crate'; crateId: number };
+  | { kind: 'crate'; crateId: number }
+  | { kind: 'store' };
 
 export type Phase = 'playing' | 'won' | 'lost';
 export type LossReason = 'time' | 'caught';
@@ -138,6 +161,13 @@ export type GameEvent =
   | { type: 'zombie-alert'; id: number }
   | { type: 'zombie-killed'; id: number }
   | { type: 'player-hit'; damage: number; by: number }
+  | { type: 'shot'; weapon: WeaponKind; from: Vec2; to: Vec2; hit: number | null }
+  | { type: 'zombie-hurt'; id: number }
+  | { type: 'reload'; weapon: WeaponKind }
+  | { type: 'empty'; weapon: WeaponKind }
+  | { type: 'pickup'; kind: PickupKind; amount: number }
+  | { type: 'purchase'; item: StoreItem }
+  | { type: 'store-open' }
   | { type: 'healed'; amount: number }
   | { type: 'task-started'; id: TaskId }
   | { type: 'crate-opened'; id: number; loot: Loot }
@@ -154,4 +184,9 @@ export interface Input {
   dy: number;
   /** The Use button was pressed this step (edge, not held). */
   action?: boolean;
+  /** Fire is held. */
+  fire?: boolean;
+  /** Reload / switch weapon were pressed this step (edges). */
+  reload?: boolean;
+  swap?: boolean;
 }

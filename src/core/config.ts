@@ -12,12 +12,12 @@ export const RUNNER_SIGHT = 24;
 /** Zombies added near the player when each tier begins (tier 0 is the city's resting population). */
 export const SPAWNS_BY_TIER = [
   { walker: 0, runner: 0 },
-  { walker: 5, runner: 1 },
-  { walker: 4, runner: 3 },
+  { walker: 7, runner: 2 },
+  { walker: 6, runner: 4 },
 ] as const;
 /** Resting population per block, by district. */
-export const ZOMBIES_PER_BLOCK = { downtown: 2.2, residential: 0.9, park: 0.8, industrial: 1.3, outskirts: 0.5, water: 0 } as const;
-export const ZOMBIE_CAP = 60;
+export const ZOMBIES_PER_BLOCK = { downtown: 3, residential: 1.3, park: 1.2, industrial: 1.8, outskirts: 0.7, water: 0 } as const;
+export const ZOMBIE_CAP = 80;
 export const ZOMBIE_SPAWN_MIN_DIST = 22; // never closer than this to the player
 export const WAVE_SPAWN_MAX_DIST = 45; // waves arrive from just out of sight
 export const ZOMBIE_ACTIVE_RADIUS = 60; // zombies further away are dormant (not simulated)
@@ -42,6 +42,7 @@ export const VEHICLES = {
 export const VEHICLE_COUNT = 16;
 export const RUN_OVER_SPEED = 4; // above this a car knocks zombies down
 export const CRATE_COUNT = 22;
+export const AMMO_PICKUPS = 10;
 
 export const TIER_THRESHOLDS = [0.66, 0.33] as const; // remaining/limit below which tier rises
 export const TASK_RADIUS = 2.2;
@@ -51,3 +52,21 @@ export const TIME_SLACK = 1.65; // measured on foot; a car buys time back
 export const TIME_PAD = 15;
 export const SPEED_BOOST = 1.12;
 export const CALM_FACTOR = 0.85;
+
+// ---- weapons. Aim assist picks a target in front of you; gunfire draws zombies.
+export const WEAPONS = {
+  pistol: { name: 'Pistol', damage: 34, pellets: 1, spread: 0.04, range: 20, interval: 0.3, mag: 12, reload: 1.3, noise: 28, ammoPack: 24 },
+  shotgun: { name: 'Shotgun', damage: 22, pellets: 6, spread: 0.3, range: 11, interval: 0.85, mag: 6, reload: 2.2, noise: 40, ammoPack: 12 },
+  rifle: { name: 'Assault rifle', damage: 26, pellets: 1, spread: 0.07, range: 28, interval: 0.11, mag: 30, reload: 2.0, noise: 45, ammoPack: 60 },
+} as const;
+export const START_AMMO = { pistol: 24, shotgun: 0, rifle: 0 } as const;
+export const ZOMBIE_HEALTH = { walker: 60, runner: 45 } as const;
+export const STAGGER_SECONDS = 0.3;
+export const ALERT_SECONDS = 7;
+export const KILL_REWARD = 5;
+export const AIM_CONE = 1.3; // radians either side of facing that aim assist will snap to
+export const PICKUP_RADIUS = 1.6;
+export const STORE_PRICES = {
+  'pistol-ammo': 15, shotgun: 120, 'shotgun-ammo': 25, rifle: 220, 'rifle-ammo': 35, medkit: 40,
+} as const;
+export const START_FUNDS = 30;

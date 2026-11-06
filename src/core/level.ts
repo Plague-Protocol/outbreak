@@ -1,8 +1,8 @@
 import { chance, fork, next, shuffle } from './rng';
-import { cellOf, distanceField, generateMap, PITCH, STREET, UNREACHABLE } from './map';
+import { cellOf, distanceField, districtAt, generateMap, PITCH, STREET, UNREACHABLE } from './map';
 import { generateChain } from './tasks';
-import { CRATE_COUNT, PLAYER_SPEED, TASK_HOLD_SECONDS, TIME_PAD, TIME_SLACK, VEHICLE_COUNT, VEHICLES } from './config';
-import type { Crate, Loot, MapData, Task, Vec2, Vehicle, VehicleKind } from './types';
+import { AMMO_PICKUPS, CRATE_COUNT, PLAYER_SPEED, TASK_HOLD_SECONDS, TIME_PAD, TIME_SLACK, VEHICLE_COUNT, VEHICLES } from './config';
+import type { Crate, Loot, MapData, Pickup, PickupKind, Store, Task, Vec2, Vehicle, VehicleKind } from './types';
 
 export interface Level {
   seed: number;
@@ -14,6 +14,15 @@ export interface Level {
   routeSeconds: number; // minimum travel+hold time for the required chain, in chain order
   vehicles: Vehicle[];
   crates: Crate[];
+  pickups: Pickup[];
+  store: Store;
+}
+
+/** A spot on the pavement beside a street point (where crates, pickups and the store counter go). */
+function pavement(map: MapData, p: Vec2, side: number): Vec2 | null {
+  const onVertical = Math.abs((p.x - STREET / 2) % PITCH) < 1e-6;
+  const pos = onVertical ? { x: p.x + side * 3.3, y: p.y } : { x: p.x, y: p.y + side * 3.3 };
+  return map.blocked[cellOf(map, pos)] === 1 ? null : pos;
 }
 
 const dist = (a: Vec2, b: Vec2) => Math.hypot(a.x - b.x, a.y - b.y);
@@ -61,19 +70,40 @@ export function generateLevel(seed: number): Level {
     return { id: i + 1, kind, pos: { x: p.x, y: p.y }, heading: p.heading, speed: 0, health: VEHICLES[kind].health, wrecked: false, tone: next(rng) };
   });
 
-  // Supply crates on the pavement beside the street.
   const busy = [spawn, safehouse, ...tasks.map((t) => t.pos)];
+
+  // The gun store: a short trip from the start, in town rather than out on the edges.
+  const storeAt = shuffle(rng, map.points).find((p) => {
+    const d = dist(p, spawn);
+    const district = districtAt(map, p)?.district;
+    return d > 35 && d < 110 && (district === 'downtown' || district === 'residential') && busy.every((q) => dist(p, q) > 12);
+  }) ?? map.points.find((p) => busy.every((q) => dist(p, q) > 12))!;
+  const store: Store = { pos: pavement(map, storeAt, 1) ?? pavement(map, storeAt, -1) ?? { ...storeAt }, name: 'Halden Guns' };
+  busy.push(store.pos);
+
+  // Supply crates on the pavement beside the street.
   const crates: Crate[] = [];
   for (const p of shuffle(rng, map.points)) {
     if (crates.length >= CRATE_COUNT) break;
     if (busy.some((q) => dist(p, q) < 8) || crates.some((c) => dist(p, c.pos) < 20)) continue;
-    const onVertical = Math.abs((p.x - STREET / 2) % PITCH) < 1e-6;
-    const off = (chance(rng, 0.5) ? 1 : -1) * 3.3;
-    const pos = onVertical ? { x: p.x + off, y: p.y } : { x: p.x, y: p.y + off };
-    if (map.blocked[cellOf(map, pos)] === 1) continue;
+    const pos = pavement(map, p, chance(rng, 0.5) ? 1 : -1);
+    if (!pos) continue;
     const r = next(rng);
-    const loot: Loot = r < 0.45 ? 'medkit' : r < 0.8 ? 'supplies' : 'empty';
+    const loot: Loot = r < 0.35 ? 'medkit' : r < 0.65 ? 'supplies' : r < 0.85 ? 'ammo' : 'empty';
     crates.push({ id: crates.length + 1, pos, loot, opened: false });
   }
-  return { seed, map, spawn, safehouse, tasks, timeLimit, routeSeconds, vehicles, crates };
+
+  // Guns and ammo lying in the street: a shotgun or two, one rifle further out, ammo boxes.
+  const kinds: PickupKind[] = ['shotgun', 'shotgun', 'rifle', ...Array<PickupKind>(AMMO_PICKUPS).fill('ammo')];
+  const taken = [...busy, ...crates.map((c) => c.pos)];
+  const pickups: Pickup[] = [];
+  for (const kind of kinds) {
+    const minFromStart = kind === 'rifle' ? 70 : kind === 'shotgun' ? 30 : 12;
+    const p = shuffle(rng, map.points).find((q) => dist(q, spawn) > minFromStart && taken.every((t) => dist(q, t) > 14));
+    if (!p) continue;
+    const pos = pavement(map, p, chance(rng, 0.5) ? 1 : -1) ?? { ...p };
+    taken.push(pos);
+    pickups.push({ id: pickups.length + 1, kind, pos, taken: false });
+  }
+  return { seed, map, spawn, safehouse, tasks, timeLimit, routeSeconds, vehicles, crates, pickups, store };
 }
