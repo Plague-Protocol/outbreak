@@ -1,6 +1,7 @@
 import {
   AdditiveBlending, BoxGeometry, CanvasTexture, Color, ConeGeometry, DoubleSide, Group, InstancedMesh, Mesh,
-  MeshBasicMaterial, MeshLambertMaterial, Object3D, PlaneGeometry, PointLight, Scene, Vector3,
+  MeshBasicMaterial, MeshLambertMaterial, Object3D, PlaneGeometry, PointLight, Scene, Sprite, SpriteMaterial, SRGBColorSpace,
+  Vector3,
 } from 'three';
 import { MeshBuilder } from './mesh';
 import { VEHICLES } from '../core/config';
@@ -56,48 +57,208 @@ export function wreckVehicle(group: Group): void {
   group.getObjectByName('lights')!.visible = false;
 }
 
-/** Guns, built along +x, in world units. */
-export function gunMesh(kind: WeaponKind | 'ammo'): Mesh {
+// Gun colours: lit gunmetal (pure black vanishes at night), polymer, and wood furniture.
+const STEEL = 0x4a4f57, STEEL_TOP = 0x6a7079, POLY = 0x2c2d30, WOOD = 0x7a4a26, WOOD_TOP = 0x8f5a2f;
+
+/**
+ * Guns in world units (about 1.3x real size so they read from the street camera), built with the
+ * barrel along +x, the top along +y, and the middle of the grip at the origin so the hand holds it.
+ * `userData.muzzle` is the muzzle point in the same space.
+ */
+export function gunMesh(kind: WeaponKind): Mesh {
   const b = new MeshBuilder();
-  const metal = 0x22252a, wood = 0x4a3020;
+  let muzzle: Vector3;
+  let m: number;
   switch (kind) {
-    case 'pistol': b.box(0.12, 0, 0, 0.34, 0.1, 0.06, metal).box(-0.02, -0.11, 0, 0.09, 0.2, 0.06, metal); break;
-    case 'shotgun': b.box(0.35, 0, 0, 0.9, 0.08, 0.07, metal).box(0.3, -0.07, 0, 0.45, 0.07, 0.08, wood).box(-0.22, -0.05, 0, 0.35, 0.12, 0.07, wood); break;
-    case 'rifle': b.box(0.25, 0, 0, 0.75, 0.11, 0.07, metal).box(0.14, -0.14, 0, 0.1, 0.22, 0.06, metal).box(-0.25, -0.04, 0, 0.3, 0.13, 0.06, metal).box(0.68, 0.02, 0, 0.25, 0.04, 0.04, metal); break;
-    case 'ammo': b.box(0, 0.2, 0, 0.7, 0.4, 0.45, 0x3f4a2a, 0x4c5933).box(0, 0.41, 0, 0.3, 0.02, 0.2, 0xc9b35a); break;
+    case 'pistol':
+      b.box(0.12, 0.13, 0, 0.36, 0.085, 0.055, STEEL, STEEL_TOP); // slide
+      b.box(0.1, 0.075, 0, 0.3, 0.05, 0.05, POLY); // frame
+      b.box(0.29, 0.13, 0, 0.02, 0.03, 0.03, 0x111111); // muzzle
+      b.box(0.08, 0.025, 0, 0.09, 0.02, 0.04, POLY); // trigger guard
+      m = b.mark();
+      b.box(0, 0, 0, 0.085, 0.19, 0.06, POLY); // grip, raked back
+      b.tiltZ(m, 0.28, 0, 0.06);
+      muzzle = new Vector3(0.31, 0.13, 0);
+      break;
+    case 'shotgun':
+      b.box(0.08, 0.1, 0, 0.36, 0.13, 0.075, STEEL, STEEL_TOP); // receiver
+      b.box(0.68, 0.14, 0, 0.84, 0.055, 0.055, STEEL, STEEL_TOP); // barrel
+      b.box(0.55, 0.075, 0, 0.6, 0.05, 0.05, STEEL); // magazine tube
+      b.box(0.6, 0.075, 0, 0.32, 0.085, 0.085, WOOD, WOOD_TOP); // pump
+      m = b.mark();
+      b.box(-0.38, 0.03, 0, 0.62, 0.14, 0.07, WOOD, WOOD_TOP); // stock
+      b.tiltZ(m, -0.12, -0.08, 0.06);
+      m = b.mark();
+      b.box(-0.02, 0, 0, 0.08, 0.16, 0.065, WOOD); // wrist
+      b.tiltZ(m, 0.35, 0, 0.06);
+      muzzle = new Vector3(1.1, 0.14, 0);
+      break;
+    case 'rifle':
+      b.box(0.15, 0.1, 0, 0.62, 0.14, 0.08, STEEL, STEEL_TOP); // receiver
+      b.box(0.6, 0.085, 0, 0.36, 0.11, 0.09, WOOD, WOOD_TOP); // handguard
+      b.box(0.62, 0.17, 0, 0.4, 0.035, 0.035, STEEL); // gas tube
+      b.box(0.92, 0.11, 0, 0.36, 0.04, 0.04, STEEL); // barrel
+      b.box(1.06, 0.15, 0, 0.03, 0.08, 0.02, STEEL); // front sight
+      b.box(0.3, 0.19, 0, 0.06, 0.04, 0.03, STEEL); // rear sight
+      m = b.mark();
+      b.box(0.3, -0.07, 0, 0.09, 0.26, 0.06, 0x2a2b2e); // curved magazine
+      b.tiltZ(m, 0.38, 0.3, 0.05);
+      m = b.mark();
+      b.box(-0.42, 0.06, 0, 0.5, 0.13, 0.07, WOOD, WOOD_TOP); // stock
+      b.tiltZ(m, -0.1, -0.16, 0.08);
+      m = b.mark();
+      b.box(0, 0, 0, 0.075, 0.17, 0.06, POLY); // pistol grip
+      b.tiltZ(m, 0.3, 0, 0.05);
+      muzzle = new Vector3(1.11, 0.11, 0);
+      break;
   }
+  const mesh = new Mesh(b.build(), new MeshLambertMaterial({ vertexColors: true, emissive: 0x0b0b0c }));
+  mesh.userData.muzzle = muzzle;
+  return mesh;
+}
+
+/** A green ammo can with a carry handle and a brass stencil. */
+function ammoMesh(): Mesh {
+  const b = new MeshBuilder()
+    .box(0, 0.18, 0, 0.62, 0.36, 0.3, 0x4c5933, 0x5a693c)
+    .box(0, 0.37, 0, 0.64, 0.03, 0.32, 0x3f4a2a)
+    .box(0, 0.42, 0, 0.26, 0.03, 0.05, 0x2a2b2e)
+    .box(0, 0.2, 0.152, 0.3, 0.08, 0.005, 0xc9b35a);
   return new Mesh(b.build(), new MeshLambertMaterial({ vertexColors: true }));
 }
 
-/** Pickups lying in the street: a slowly turning gun or ammo box on a glowing ring. */
-export function pickupMesh(kind: PickupKind): Group {
+/** A pickup lying where someone dropped it: a gun on its side or an ammo can, with a glint. */
+export function pickupMesh(kind: PickupKind, yaw: number): Group {
   const g = new Group();
-  const m = gunMesh(kind);
-  if (kind !== 'ammo') m.scale.setScalar(1.6);
-  m.position.y = kind === 'ammo' ? 0 : 0.7;
-  m.name = 'item';
-  const ring = new Mesh(
-    new PlaneGeometry(1.8, 1.8).rotateX(-Math.PI / 2),
-    new MeshBasicMaterial({ map: ringTexture(), transparent: true, blending: AdditiveBlending, depthWrite: false, color: kind === 'ammo' ? 0x7fd38a : 0xf2b630 }),
-  );
-  ring.position.y = 0.2;
-  g.add(m, ring);
+  const item = kind === 'ammo' ? ammoMesh() : gunMesh(kind);
+  if (kind !== 'ammo') {
+    item.rotation.set(Math.PI / 2, 0, 0); // on its side, flat on the ground
+    item.position.y = 0.05;
+  }
+  const holder = new Group();
+  holder.rotation.y = yaw;
+  holder.add(item);
+  g.add(holder, glint(kind === 'ammo' ? 0.55 : 0.3));
   return g;
 }
 
-let ringTex: CanvasTexture | null = null;
-function ringTexture(): CanvasTexture {
-  if (ringTex) return ringTex;
+let glintTex: CanvasTexture | null = null;
+/** A four-point star with a soft core: the glint that says "this can be picked up". */
+function glintTexture(): CanvasTexture {
+  if (glintTex) return glintTex;
   const c = document.createElement('canvas');
   c.width = c.height = 64;
   const x = c.getContext('2d')!;
-  const grd = x.createRadialGradient(32, 32, 14, 32, 32, 32);
-  grd.addColorStop(0, 'rgba(255,255,255,0)');
-  grd.addColorStop(0.6, 'rgba(255,255,255,0.8)');
-  grd.addColorStop(1, 'rgba(255,255,255,0)');
-  x.fillStyle = grd;
+  const core = x.createRadialGradient(32, 32, 0, 32, 32, 14);
+  core.addColorStop(0, 'rgba(255,255,255,1)');
+  core.addColorStop(1, 'rgba(255,255,255,0)');
+  x.fillStyle = core;
   x.fillRect(0, 0, 64, 64);
-  return (ringTex = new CanvasTexture(c));
+  x.fillStyle = 'rgba(255,255,255,0.9)';
+  for (const [w, h] of [[30, 2.2], [2.2, 30]] as const) {
+    x.beginPath();
+    x.ellipse(32, 32, w, h, 0, 0, Math.PI * 2);
+    x.fill();
+  }
+  return (glintTex = new CanvasTexture(c));
+}
+
+/** The glint sprite, named so the view can pulse it. */
+export function glint(height: number, color = 0xfff1c4): Sprite {
+  const s = new Sprite(new SpriteMaterial({ map: glintTexture(), color, transparent: true, blending: AdditiveBlending, depthWrite: false }));
+  s.position.y = height;
+  s.scale.setScalar(0.9);
+  s.name = 'glint';
+  return s;
+}
+
+/** Pulse a glint: mostly a soft shimmer, with a sharp sparkle every couple of seconds. */
+export function pulseGlint(s: Object3D, time: number, phase: number): void {
+  const t = (time * 0.6 + phase) % 1;
+  const flash = t < 0.12 ? Math.sin((t / 0.12) * Math.PI) : 0;
+  s.scale.setScalar(0.55 + flash * 0.9);
+  ((s as Sprite).material as SpriteMaterial).opacity = 0.35 + flash * 0.65;
+  (s as Sprite).material.rotation = time * 0.4 + phase;
+}
+
+/** The story items you take at an objective (keys, keycard, map, supplies). Base at y = 0. */
+export function storyItem(kind: 'key' | 'keycard' | 'map' | 'medkit' | 'fuel'): Group {
+  const g = new Group();
+  const b = new MeshBuilder();
+  let glintH = 0.3;
+  switch (kind) {
+    case 'key': // a key ring: brass and steel keys and a red fob
+      b.box(0, 0.02, 0, 0.16, 0.025, 0.16, 0x9a9da3);
+      b.box(0.2, 0.02, 0.03, 0.26, 0.02, 0.05, 0xc9a64a).box(0.31, 0.02, 0.06, 0.04, 0.02, 0.05, 0xc9a64a);
+      b.box(0.05, 0.02, -0.2, 0.05, 0.02, 0.24, 0xb8bcc2);
+      b.box(-0.17, 0.03, -0.05, 0.2, 0.04, 0.12, 0xb02020, 0xc8302a);
+      break;
+    case 'keycard': // a security card on a lanyard
+      b.box(0, 0.015, 0, 0.42, 0.012, 0.27, 0xe8e8e2, 0xeeeeea);
+      b.floor(-0.2, -0.12, 0.2, -0.05, 0.022, 0x2f6ea8);
+      b.floor(0.06, 0, 0.17, 0.09, 0.022, 0xd8b44a);
+      b.box(-0.35, 0.01, 0.05, 0.3, 0.01, 0.035, 0x2f6ea8).box(-0.5, 0.01, 0.2, 0.035, 0.01, 0.32, 0x2f6ea8);
+      break;
+    case 'map': { // a city map, open on top of a crate (the crate is scenery and stays)
+      const paper = new Mesh(new PlaneGeometry(0.8, 0.58).rotateX(-Math.PI / 2), new MeshLambertMaterial({ map: mapTexture() }));
+      paper.position.set(0, 0.81, 0);
+      paper.rotation.y = 0.25;
+      g.add(paper);
+      glintH = 1.05;
+      break;
+    }
+    case 'medkit': // a first-aid bag with a carry strap
+      b.box(0, 0.2, 0, 0.75, 0.4, 0.45, 0xb3201f, 0xc42a26);
+      b.box(0, 0.405, 0, 0.36, 0.012, 0.1, 0xf2f2ee).box(0, 0.405, 0, 0.1, 0.012, 0.32, 0xf2f2ee);
+      b.box(0, 0.46, 0, 0.32, 0.06, 0.05, 0x1d1d1f);
+      glintH = 0.6;
+      break;
+    case 'fuel': // jerrycans
+      for (const [x, z] of [[0, 0], [0.62, 0.15]] as const) {
+        b.box(x, 0.32, z, 0.46, 0.62, 0.22, 0xa52a1e, 0xb8352a); // body
+        b.box(x - 0.05, 0.67, z, 0.26, 0.08, 0.06, 0x7d1f16); // handle
+        b.box(x + 0.17, 0.68, z, 0.06, 0.1, 0.06, 0x2a2b2e); // spout cap
+      }
+      glintH = 0.95;
+      break;
+  }
+  g.add(new Mesh(b.build(), new MeshLambertMaterial({ vertexColors: true, emissive: 0x0a0a0a })));
+  g.add(glint(glintH));
+  return g;
+}
+
+let mapTex: CanvasTexture | null = null;
+/** A paper street map: blocks, a park, the harbour, a red route, fold lines. */
+function mapTexture(): CanvasTexture {
+  if (mapTex) return mapTex;
+  const c = document.createElement('canvas');
+  c.width = 128;
+  c.height = 92;
+  const x = c.getContext('2d')!;
+  x.fillStyle = '#e9e1c8';
+  x.fillRect(0, 0, 128, 92);
+  for (let i = 0; i < 6; i++) for (let j = 0; j < 4; j++) {
+    x.fillStyle = i === 2 && j === 1 ? '#9cc28a' : '#cfc6aa';
+    x.fillRect(4 + i * 20, 4 + j * 18, 15, 13);
+  }
+  x.fillStyle = '#8fb4d0';
+  x.fillRect(0, 76, 128, 16);
+  x.strokeStyle = '#c0262b';
+  x.lineWidth = 2.5;
+  x.beginPath();
+  x.moveTo(12, 70);
+  x.lineTo(12, 37);
+  x.lineTo(78, 37);
+  x.lineTo(78, 18);
+  x.lineTo(118, 18);
+  x.stroke();
+  x.strokeStyle = 'rgba(0,0,0,0.18)';
+  x.lineWidth = 1;
+  for (const fx of [43, 86]) { x.beginPath(); x.moveTo(fx, 0); x.lineTo(fx, 92); x.stroke(); }
+  x.beginPath(); x.moveTo(0, 46); x.lineTo(128, 46); x.stroke();
+  mapTex = new CanvasTexture(c);
+  mapTex.colorSpace = SRGBColorSpace;
+  return mapTex;
 }
 
 function textTexture(text: string, color: string, w = 256, h = 96, font = 'bold 64px system-ui, sans-serif', glow = true): CanvasTexture {

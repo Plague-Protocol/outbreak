@@ -82,6 +82,25 @@ export class MeshBuilder {
     return this;
   }
 
+  /** Vertex count so far; pass it to `tiltZ` to tilt everything added after it. */
+  mark(): number {
+    return this.pos.length / 3;
+  }
+
+  /** Rotate the vertices added since `from` about the z axis through (px, py) (gun grips, magazines). */
+  tiltZ(from: number, angle: number, px: number, py: number): this {
+    const c = Math.cos(angle), s = Math.sin(angle);
+    for (let i = from * 3; i < this.pos.length; i += 3) {
+      const x = this.pos[i]! - px, y = this.pos[i + 1]! - py;
+      this.pos[i] = px + x * c - y * s;
+      this.pos[i + 1] = py + x * s + y * c;
+      const nx = this.nor[i]!, ny = this.nor[i + 1]!;
+      this.nor[i] = nx * c - ny * s;
+      this.nor[i + 1] = nx * s + ny * c;
+    }
+    return this;
+  }
+
   get triangles(): number {
     return this.pos.length / 9;
   }

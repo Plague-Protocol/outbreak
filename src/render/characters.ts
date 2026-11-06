@@ -1,5 +1,5 @@
 import {
-  AnimationAction, AnimationClip, Vector3, AnimationMixer, EqualStencilFunc, GreaterDepth, KeepStencilOp, LoopOnce, LoopRepeat,
+  AnimationAction, AnimationClip, Matrix4, Vector3, AnimationMixer, EqualStencilFunc, GreaterDepth, KeepStencilOp, LoopOnce, LoopRepeat,
   MeshBasicMaterial, MeshLambertMaterial, NearestFilter, Object3D, SkinnedMesh, SRGBColorSpace, TextureLoader, type Material,
 } from 'three';
 import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
@@ -81,6 +81,7 @@ export class Actor {
   private placed = false;
   private upper: UpperClip | null = null;
   private hand: Object3D | null = null;
+  private held: Object3D | null = null;
 
   constructor(private assets: CharacterAssets, skin: SkinName, withXray = false) {
     this.root = clone(assets.template);
@@ -121,6 +122,30 @@ export class Actor {
     a.weight = 4;
     a.fadeIn(0.1);
     a.play();
+  }
+
+  /**
+   * Put an object in the right hand, parented to the hand bone so it follows every animation.
+   * The object's +x runs along the knuckles (a gun's barrel), +y toward the thumb (the top of the
+   * gun), and its origin sits in the palm (the middle of the grip). Pass null to empty the hand.
+   */
+  holdInRightHand(obj: Object3D | null): void {
+    if (this.held) this.held.removeFromParent();
+    this.held = obj;
+    if (!obj || !this.hand) return;
+    const index = this.hand.getObjectByName('RightHandIndex1');
+    const thumb = this.hand.getObjectByName('RightHandThumb1');
+    if (!index || !thumb) { this.hand.add(obj); return; }
+    // bone positions are in the hand's local space
+    const along = index.position.clone().normalize();
+    const up = thumb.position.clone().addScaledVector(along, -thumb.position.dot(along)).normalize();
+    const side = new Vector3().crossVectors(along, up);
+    obj.quaternion.setFromRotationMatrix(new Matrix4().makeBasis(along, up, side));
+    obj.position.copy(index.position).multiplyScalar(0.55).addScaledVector(up, -index.position.length() * 0.12);
+    // undo the skeleton's scale so the object keeps its world size
+    this.root.updateMatrixWorld(true);
+    obj.scale.setScalar(1 / this.hand.getWorldScale(new Vector3()).x);
+    this.hand.add(obj);
   }
 
   /** World position of the right hand (for the gun and the muzzle flash). */

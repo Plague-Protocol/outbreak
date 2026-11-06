@@ -1,12 +1,12 @@
 import {
   AdditiveBlending, CanvasTexture, Color, CylinderGeometry, DirectionalLight, Fog, Group, HemisphereLight, InstancedMesh,
-  Mesh, MeshBasicMaterial, Object3D, PerspectiveCamera, PlaneGeometry, PointLight, RingGeometry, Scene, SpotLight,
+  Mesh, MeshBasicMaterial, MeshLambertMaterial, Object3D, PerspectiveCamera, PlaneGeometry, PointLight, RingGeometry, Scene, SpotLight,
   Vector3, WebGLRenderer, type Material,
 } from 'three';
 import { Actor, type CharacterAssets, type ClipName } from './characters';
 import { buildCity, type CityMeshes, type LightSource } from './city';
 import { MeshBuilder } from './mesh';
-import { Effects, Evac, gunMesh, pickupMesh, storeMesh, vehicleMesh, wreckVehicle } from './props';
+import { Effects, Evac, gunMesh, pickupMesh, pulseGlint, storeMesh, storyItem, vehicleMesh, wreckVehicle } from './props';
 import { currentTask, playerSpeed, playerVehicle, requiredDone, type GameState } from '../core/state';
 import { ATTACK_WINDUP, SAFEHOUSE_RADIUS, TASK_RADIUS, WEAPONS } from '../core/config';
 import type { GameEvent, TaskId, Vec2, WeaponKind, Zombie } from '../core/types';
@@ -46,6 +46,8 @@ export class GameView {
   private zombies = new Map<number, Actor>();
   private actorPool: Actor[] = [];
   private extras: Array<{ actor: Actor; task: TaskId }> = [];
+  /** Objective props that change with the task: items you take vanish, the gate swings open. */
+  private taskItems: Array<{ group: Group; task: TaskId; whenDone: boolean }> = [];
   private level = new Group(); // everything rebuilt per night
   private vehicles = new Map<number, { group: Group; wrecked: boolean }>();
   private pickups = new Map<number, Group>();
@@ -61,7 +63,6 @@ export class GameView {
   private focus = new Vector3();
   private target = new Vector3();
   private tmp = new Object3D();
-  private v3 = new Vector3();
   private colorTmp = new Color();
   private seed = -1;
   private distance = 40;
@@ -146,6 +147,7 @@ export class GameView {
     this.zombies.clear();
     for (const e of this.extras) { this.scene.remove(e.actor.root); e.actor.dispose(); }
     this.extras = [];
+    this.taskItems = [];
     this.scene.remove(this.level);
     this.level = new Group();
     this.scene.add(this.level);
@@ -158,8 +160,8 @@ export class GameView {
       this.vehicles.set(v.id, { group: g, wrecked: false });
     }
     for (const p of s.pickups) {
-      const g = pickupMesh(p.kind);
-      g.position.set(p.pos.x, 0, p.pos.y);
+      const g = pickupMesh(p.kind, p.id * 2.4);
+      g.position.set(p.pos.x, this.groundAt(s, p.pos), p.pos.y);
       this.level.add(g);
       this.pickups.set(p.id, g);
     }
@@ -179,9 +181,13 @@ export class GameView {
     this.player.setUpper(null);
   }
 
-  /** Small story props at each objective, plus people: the fallen medic, the soldier, the survivor. */
-  private buildTaskProps(s: GameState): Mesh {
-    const b = new MeshBuilder();
+  /**
+   * Story props at each objective. Things you take (keys, keycard, map, supplies) lie where you
+   * can see them and vanish once taken; the fallen carry them; the generator and gate change state.
+   */
+  private buildTaskProps(s: GameState): Group {
+    const out = new Group();
+    const b = new MeshBuilder(); // static scenery, merged into one mesh
     const person = (task: TaskId, skin: 'humanMaleA' | 'humanFemaleA', clip: ClipName, at: Vec2, yaw: number, once: boolean) => {
       const a = new Actor(this.assets, skin);
       a.play(clip, { once, fade: 0, startAt: once ? 0.999 : 0 });
@@ -189,34 +195,64 @@ export class GameView {
       this.extras.push({ actor: a, task });
       this.scene.add(a.root);
     };
+    const add = (task: TaskId, obj: Object3D, x: number, z: number, yaw: number, whenDone = false) => {
+      const g = obj instanceof Group ? obj : new Group().add(obj);
+      g.position.set(x, this.groundAt(s, { x, y: z }), z);
+      g.rotation.y = yaw;
+      out.add(g);
+      this.taskItems.push({ group: g, task, whenDone });
+    };
+    const basic = (mb: MeshBuilder) => new Mesh(mb.build(), new MeshBasicMaterial({ vertexColors: true }));
     for (const t of s.tasks) {
       const x = t.pos.x + 1.4, z = t.pos.y + 1.4;
+      const gy = this.groundAt(s, { x, y: z });
       switch (t.id) {
-        case 'map': // a police cruiser's light bar on a crate, still flashing in the dark
-          b.box(x, 0.4, z, 0.9, 0.8, 0.9, 0x5a4630).box(x, 0.82, z, 0.6, 0.04, 0.45, 0xd8d2bf);
+        case 'map':
+          b.box(x, gy + 0.4, z, 0.9, 0.8, 0.9, 0x5a4630, 0x6a5238); // the crate the map lies on
+          add('map', storyItem('map'), x, z, 0.4);
           break;
-        case 'key': person('key', 'humanFemaleA', 'Death', { x, y: z }, 0.7, true); break;
-        case 'keycard': person('keycard', 'humanMaleA', 'Death', { x, y: z }, 2.3, true); break;
-        case 'power':
-          b.box(x, 0.55, z, 1.4, 1.1, 0.9, 0x6b6f3a, 0x585c30).box(x + 0.5, 1.2, z, 0.15, 0.4, 0.15, 0x222222);
+        case 'key': // the fallen woman, her keys dropped by her hand
+          person('key', 'humanFemaleA', 'Death', { x, y: z }, 0.7, true);
+          add('key', storyItem('key'), t.pos.x + 0.5, t.pos.y + 0.4, 1.1);
           break;
-        case 'gate':
-          for (const o of [-1.4, 1.4]) b.box(x + o, 1.3, z, 0.25, 2.6, 0.25, 0x40444a);
-          for (let k = -6; k <= 6; k++) b.box(x + k * 0.2, 1.2, z, 0.05, 2.2, 0.05, 0x55595f);
+        case 'keycard': // the fallen soldier, his keycard on its lanyard beside him
+          person('keycard', 'humanMaleA', 'Death', { x, y: z }, 2.3, true);
+          add('keycard', storyItem('keycard'), t.pos.x + 0.5, t.pos.y + 0.3, -0.5);
           break;
+        case 'power': { // generator; its lamp goes from dead red to running green
+          b.box(x, gy + 0.55, z, 1.4, 1.1, 0.9, 0x6b6f3a, 0x585c30).box(x + 0.5, gy + 1.2, z, 0.15, 0.4, 0.15, 0x222222);
+          b.box(x - 0.3, gy + 0.6, z + 0.46, 0.5, 0.35, 0.02, 0x2a2b2e);
+          add('power', basic(new MeshBuilder().box(0, 0, 0, 0.12, 0.12, 0.12, 0x7a1010)), x - 0.45, z + 0.47, 0);
+          this.taskItems[this.taskItems.length - 1]!.group.position.y = gy + 0.95;
+          add('power', basic(new MeshBuilder().box(0, 0, 0, 0.14, 0.14, 0.14, 0x40ff80)), x - 0.45, z + 0.47, 0, true);
+          this.taskItems[this.taskItems.length - 1]!.group.position.y = gy + 0.95;
+          break;
+        }
+        case 'gate': { // posts stay; the bars are shut until it opens, then stand swung aside
+          for (const o of [-1.4, 1.4]) b.box(x + o, gy + 1.3, z, 0.25, 2.6, 0.25, 0x40444a);
+          const bars = (open: boolean) => {
+            const mb = new MeshBuilder();
+            for (let k = 0; k <= 6; k++) mb.box(open ? 0.05 : k * 0.2, 1.2, open ? k * 0.2 : 0, 0.05, 2.2, 0.05, 0x55595f);
+            mb.box(open ? 0.05 : 0.6, 2.2, open ? 0.6 : 0, open ? 0.05 : 1.25, 0.08, open ? 1.25 : 0.05, 0x55595f);
+            return new Mesh(mb.build(), new MeshLambertMaterial({ vertexColors: true }));
+          };
+          add('gate', bars(false), x - 1.25, z, 0);
+          add('gate', bars(false), x + 1.25, z, Math.PI);
+          add('gate', bars(true), x - 1.25, z, 0, true);
+          add('gate', bars(true), x + 1.25, z, Math.PI, true);
+          break;
+        }
         case 'radio':
-          b.box(x, 0.5, z, 1.4, 1, 0.7, 0x3d2c22, 0x4a3628).box(x, 1.12, z, 0.5, 0.25, 0.25, 0x1b1d20);
+          b.box(x, gy + 0.5, z, 1.4, 1, 0.7, 0x3d2c22, 0x4a3628).box(x, gy + 1.12, z, 0.5, 0.25, 0.25, 0x1b1d20);
+          b.box(x + 0.15, gy + 1.5, z, 0.03, 0.6, 0.03, 0x9a9da3); // aerial
           break;
-        case 'fuel':
-          b.box(x, 0.3, z, 0.45, 0.6, 0.25, 0xa52a1e).box(x + 0.6, 0.3, z + 0.1, 0.45, 0.6, 0.25, 0xa52a1e);
-          break;
-        case 'medkit':
-          b.box(x, 0.2, z, 0.8, 0.4, 0.55, 0xe6e6e0).box(x, 0.41, z, 0.5, 0.02, 0.15, 0xc0262b).box(x, 0.41, z, 0.15, 0.02, 0.4, 0xc0262b);
-          break;
+        case 'fuel': add('fuel', storyItem('fuel'), x, z, 0.3); break;
+        case 'medkit': add('medkit', storyItem('medkit'), x, z, -0.4); break;
         case 'rescue': person('rescue', 'humanFemaleA', 'Talk', { x, y: z }, -2.2, false); break;
       }
     }
-    return new Mesh(b.build(), (this.city!.group.children[0] as Mesh).material as Material);
+    if (b.triangles) out.add(new Mesh(b.build(), (this.city!.group.children[0] as Mesh).material as Material));
+    return out;
   }
 
   private screenPoint(p: Vec2): Vector3 {
@@ -246,9 +282,7 @@ export class GameView {
       switch (e.type) {
         case 'shot': {
           this.lastShot = this.time;
-          const hand = this.player.handPosition(this.v3.clone());
-          const from = hand.clone().add(new Vector3(Math.cos(s.player.heading) * 0.5, 0.05, Math.sin(s.player.heading) * 0.5));
-          this.effects.shot(from, new Vector3(e.to.x, 1.3, e.to.y));
+          this.effects.shot(this.muzzle(s), new Vector3(e.to.x, 1.3, e.to.y));
           this.shake(e.weapon === 'shotgun' ? 0.25 : 0.08);
           this.player.setUpper('ShootUpper', { restart: true, timeScale: 1.6 });
           break;
@@ -351,9 +385,13 @@ export class GameView {
       const g = this.pickups.get(pk.id);
       if (!g) continue;
       g.visible = !pk.taken;
-      const item = g.getObjectByName('item')!;
-      item.rotation.y = this.time * 1.5 + pk.id;
-      if (pk.kind !== 'ammo') item.position.y = 0.7 + Math.sin(this.time * 2 + pk.id) * 0.12;
+      if (g.visible) pulseGlint(g.getObjectByName('glint')!, this.time, pk.id * 0.37);
+    }
+    for (const it of this.taskItems) {
+      const done = !!s.tasks.find((t) => t.id === it.task)?.done;
+      it.group.visible = it.whenDone ? done : !done;
+      const gl = it.group.getObjectByName('glint');
+      if (gl && it.group.visible) pulseGlint(gl, this.time, it.group.position.x * 0.13);
     }
     if (this.crates) {
       s.crates.forEach((cr, i) => {
@@ -417,20 +455,33 @@ export class GameView {
     this.renderer.render(this.scene, this.camera);
   }
 
-  /** The gun follows the right hand, pointing where the player faces. */
+  /** The current gun sits in the right hand (parented to the hand bone, so it follows the arm). */
   private updateGun(s: GameState, show: boolean): void {
     const w = s.arsenal.weapon;
     if (w !== this.gunKind) {
-      if (this.gun) this.scene.remove(this.gun);
       this.gun = w ? gunMesh(w) : null;
       this.gunKind = w;
-      if (this.gun) this.scene.add(this.gun);
+      this.player.holdInRightHand(this.gun);
     }
-    if (!this.gun) return;
-    this.gun.visible = show;
-    if (!show) return;
-    this.player.handPosition(this.gun.position);
-    this.gun.rotation.set(0, this.player.yawAngle - Math.PI / 2, 0);
+    if (this.gun) this.gun.visible = show;
+  }
+
+  /** World position of the current gun's muzzle (falls back to in front of the hand). */
+  private muzzle(s: GameState): Vector3 {
+    if (this.gun?.visible) {
+      this.gun.updateWorldMatrix(true, false);
+      return this.gun.localToWorld((this.gun.userData.muzzle as Vector3).clone());
+    }
+    const hand = this.player.handPosition(new Vector3());
+    return hand.add(new Vector3(Math.cos(s.player.heading) * 0.5, 0.05, Math.sin(s.player.heading) * 0.5));
+  }
+
+  /** Height of the ground at a point: raised pavement inside blocks, road between them. */
+  private groundAt(s: GameState, p: Vec2): number {
+    for (const b of s.map.blocks) {
+      if (b.district !== 'water' && p.x >= b.x && p.x <= b.x + b.size && p.y >= b.y && p.y <= b.y + b.size) return 0.15;
+    }
+    return 0;
   }
 
   private animateZombie(a: Actor, z: Zombie): void {
