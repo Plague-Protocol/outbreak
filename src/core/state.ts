@@ -8,6 +8,9 @@ import {
   AIM_CONE, ALERT_SECONDS, AMMO_PRICES, GUNS, KILL_REWARD, MEDKIT_PRICE, MELEE, MELEE_KNOCKBACK, PICKUP_RADIUS,
   SAFE_AFTER, STAGGER_SECONDS, START_AMMO, START_FUNDS, STORE_DOOR_RADIUS, UPGRADE_BASE, UPGRADE_EFFECT, UPGRADE_FACTOR,
   UPGRADE_LEVELS, WEAPON_PRICES, ZOMBIE_HEALTH,
+  ALARM_RADIUS, ALARM_SECONDS, ALARM_SHOT_RADIUS, BOTTLE_FLIGHT, BOTTLE_RANGE, BOTTLES_PRICE, CLEAR_COUNT, FUEL_SECONDS,
+  JERRYCAN_FUEL, JERRYCAN_PRICE, LURE_RADIUS, LURE_SECONDS, PUMP_RATE, REFUEL_SECONDS, SEARCH_SECONDS, START_BOTTLES,
+  SURVIVOR_FUNDS, TALK_SECONDS,
 } from './config';
 import { nearbyObstacles } from './collision';
 import { lineClear, resolve } from './collision';
@@ -15,6 +18,7 @@ import { generateLevel, type Level } from './level';
 import { cellOf, distanceField, UNREACHABLE } from './map';
 import { createRng, next, pick, range, type Rng } from './rng';
 import type {
+  Alarm, House, Loot, Survivor, Thrown,
   Crate, GameEvent, GunKind, Input, Interaction, LossReason, MapData, MeleeKind, Phase, Pickup, Store, StoreItem, Task,
   TaskId, UpgradeKind, Vec2, Vehicle, WeaponKind, Zombie, ZombieKind,
 } from './types';
@@ -29,6 +33,16 @@ export interface Arsenal {
   fireCd: number;
   reloadT: number; // seconds left on a reload (0 = not reloading)
   swing: number; // counts swings, so the renderer can alternate them
+  bottles: number; // to throw as a distraction
+  cans: number; // jerrycans of fuel
+}
+
+/** A short job you stand still for: searching a house, talking to a survivor, refuelling a car. */
+export interface Work {
+  kind: 'search' | 'talk' | 'refuel';
+  id: number;
+  progress: number; // 0..1
+  seconds: number;
 }
 
 export const isMelee = (w: WeaponKind): w is MeleeKind => w in MELEE;
@@ -71,6 +85,13 @@ export interface GameState {
   storeLatch: number | null;
   /** Grace after finishing an objective: zombies keep holding back while you step away. */
   safeT: number;
+  houses: House[];
+  survivors: Survivor[];
+  alarms: Alarm[];
+  alarmUsed: number[]; // parked cars (map.buildings indices) whose alarm has gone off
+  thrown: Thrown[];
+  work: Work | null;
+  pumping: boolean;
   kills: number;
   /** Zombie that caught the player, if any (the renderer stages the ending around it). */
   killerId: number | null;
@@ -114,12 +135,19 @@ export function createGame(seed: number, level: Level = generateLevel(seed)): Ga
       mag: { pistol: GUNS.pistol.mag, shotgun: 0, rifle: 0 },
       ammo: { ...START_AMMO },
       upgrades: { pistol: noUpgrades(), shotgun: noUpgrades(), rifle: noUpgrades(), baton: noUpgrades(), bat: noUpgrades(), machete: noUpgrades() },
-      fireCd: 0, reloadT: 0, swing: 0,
+      fireCd: 0, reloadT: 0, swing: 0, bottles: START_BOTTLES, cans: 0,
     },
     pickups: level.pickups.map((p) => ({ ...p, pos: { ...p.pos } })),
     stores: level.stores.map((st) => ({ ...st, pos: { ...st.pos } })),
     storeLatch: null,
     safeT: 0,
+    houses: level.houses.map((h) => ({ ...h, pos: { ...h.pos } })),
+    survivors: level.survivors.map((v) => ({ ...v, pos: { ...v.pos }, fetchPos: { ...v.fetchPos }, targets: [] })),
+    alarms: [],
+    alarmUsed: [],
+    thrown: [],
+    work: null,
+    pumping: false,
     kills: 0,
     zombies: [],
     vehicles: level.vehicles.map((v) => ({ ...v, pos: { ...v.pos } })),
@@ -157,7 +185,7 @@ function depsMet(s: GameState, t: Task): boolean {
 
 /** Working an objective or talking to someone (or just finished): zombies hold back. */
 export function isBusy(s: GameState): boolean {
-  return s.hold.taskId !== null || s.safeT > 0;
+  return s.hold.taskId !== null || s.work !== null || s.safeT > 0;
 }
 
 export function playerVehicle(s: GameState): Vehicle | null {
@@ -283,12 +311,14 @@ export function step(s: GameState, input: Input, dt: number): GameState {
   s.player.invuln = Math.max(0, s.player.invuln - dt);
   if (s.player.vehicleId === null) {
     updateWeapons(s, input, dt);
+    if (input.throw) throwBottle(s);
     takePickups(s);
   }
 
   const driving = playerVehicle(s);
-  if (driving) drive(driving, input, dt);
+  if (driving) { drive(driving, input, dt); burnFuel(s, driving, dt); }
   else movePlayer(s, input, dt);
+  pumpFuel(s, dt);
   for (const v of s.vehicles) moveVehicle(s, v, dt, v === driving);
   const still = playerVehicle(s); // a wreck may have thrown the player out
   if (still) {
@@ -299,6 +329,10 @@ export function step(s: GameState, input: Input, dt: number): GameState {
   }
 
   enterStores(s);
+  updateWork(s, dt);
+  updateThrown(s, dt);
+  updateAlarms(s, dt);
+  updateSurvivors(s);
   s.safeT = Math.max(0, s.safeT - dt);
   refreshFlow(s);
   updateTasks(s, dt);
@@ -329,6 +363,11 @@ export function interactionFor(s: GameState): Interaction | null {
   if (task) return { kind: 'task', taskId: task.id };
   const store = s.stores.find((st) => dist(st.pos, p) < USE_RADIUS);
   if (store) return { kind: 'store', storeId: store.id };
+  if (s.work) return null; // busy: one job at a time
+  const sv = s.survivors.find((v) => v.status !== 'done' && dist(v.pos, p) < 2.6);
+  if (sv) return { kind: 'talk', survivorId: sv.id };
+  const house = s.houses.find((h) => !h.searched && dist(h.pos, p) < 1.8);
+  if (house) return { kind: 'house', houseId: house.id };
   const crate = s.crates.find((c) => !c.opened && dist(c.pos, p) < USE_RADIUS * 0.75);
   if (crate) return { kind: 'crate', crateId: crate.id };
   let best: Vehicle | null = null, bestD = 1.6;
@@ -337,7 +376,21 @@ export function interactionFor(s: GameState): Interaction | null {
     const d = vehicleReach(c, p);
     if (d < bestD) { bestD = d; best = c; }
   }
-  return best ? { kind: 'enter', vehicleId: best.id } : null;
+  if (best && s.arsenal.cans > 0 && best.fuel < 0.95) return { kind: 'refuel', vehicleId: best.id };
+  if (best) return { kind: 'enter', vehicleId: best.id };
+  const parked = parkedCarNear(s, p, 1.6);
+  return parked !== null ? { kind: 'alarm', car: parked } : null;
+}
+
+/** A parked (undrivable) car within reach whose alarm has not gone off yet. */
+function parkedCarNear(s: GameState, p: Vec2, reach: number): number | null {
+  for (const idx of nearbyObstacles(s.map, p, reach, [])) {
+    const b = s.map.buildings[idx]!;
+    if (b.kind !== 'car' || s.alarmUsed.includes(idx)) continue;
+    const nx = Math.max(b.x, Math.min(p.x, b.x + b.w)), ny = Math.max(b.y, Math.min(p.y, b.y + b.h));
+    if (Math.hypot(p.x - nx, p.y - ny) < reach) return idx;
+  }
+  return null;
 }
 
 function interact(s: GameState): void {
@@ -357,6 +410,7 @@ function interact(s: GameState): void {
         s.events.push({ type: 'task-locked', id: t.id, needs: t.requires.filter((id) => !s.tasks.some((x) => x.id === id && x.done)) });
         return;
       }
+      s.work = null;
       s.hold.taskId = t.id;
       s.hold.progress = 0;
       s.events.push({ type: 'task-started', id: t.id });
@@ -370,20 +424,214 @@ function interact(s: GameState): void {
       const c = s.crates.find((x) => x.id === it.crateId)!;
       c.opened = true;
       s.events.push({ type: 'crate-opened', id: c.id, loot: c.loot });
-      if (c.loot === 'medkit') {
-        const before = s.player.health;
-        s.player.health = Math.min(PLAYER_HEALTH, s.player.health + MEDKIT_HEAL);
-        s.events.push({ type: 'healed', amount: s.player.health - before });
-      } else if (c.loot === 'supplies') s.funds += 25;
-      else if (c.loot === 'ammo') {
-        const w = ammoTarget(s);
-        const n = Math.ceil(GUNS[w].ammoPack / 2);
-        s.arsenal.ammo[w] += n;
-        s.events.push({ type: 'pickup', kind: 'ammo', amount: n });
-      }
+      giveLoot(s, c.loot);
       break;
     }
+    case 'house': startWork(s, 'search', it.houseId, SEARCH_SECONDS); break;
+    case 'talk': startWork(s, 'talk', it.survivorId, TALK_SECONDS); break;
+    case 'refuel': startWork(s, 'refuel', it.vehicleId, REFUEL_SECONDS); break;
+    case 'alarm': startAlarm(s, it.car); break;
   }
+}
+
+function giveLoot(s: GameState, loot: Loot): void {
+  if (loot === 'medkit') {
+    const before = s.player.health;
+    s.player.health = Math.min(PLAYER_HEALTH, s.player.health + MEDKIT_HEAL);
+    s.events.push({ type: 'healed', amount: s.player.health - before });
+  } else if (loot === 'supplies') s.funds += 25;
+  else if (loot === 'ammo') {
+    const w = ammoTarget(s);
+    const n = Math.ceil(GUNS[w].ammoPack / 2);
+    s.arsenal.ammo[w] += n;
+    s.events.push({ type: 'pickup', kind: 'ammo', amount: n });
+  } else if (loot === 'bottles') {
+    s.arsenal.bottles += 2;
+    s.events.push({ type: 'pickup', kind: 'bottles', amount: 2 });
+  }
+}
+
+// ---------------------------------------------------------------- short jobs: search, talk, refuel
+
+function startWork(s: GameState, kind: Work['kind'], id: number, seconds: number): void {
+  s.work = { kind, id, progress: 0, seconds };
+  s.hold.taskId = null;
+  s.hold.progress = 0;
+  s.events.push({ type: 'work-started', kind });
+}
+
+function workTarget(s: GameState, w: Work): Vec2 | null {
+  if (w.kind === 'search') return s.houses.find((h) => h.id === w.id)?.pos ?? null;
+  if (w.kind === 'talk') return s.survivors.find((v) => v.id === w.id)?.pos ?? null;
+  return s.vehicles.find((v) => v.id === w.id)?.pos ?? null;
+}
+
+function updateWork(s: GameState, dt: number): void {
+  const w = s.work;
+  if (!w) return;
+  const at = workTarget(s, w);
+  const reach = w.kind === 'refuel' ? 5 : 3;
+  if (!at || s.player.vehicleId !== null || dist(at, s.player.pos) > reach) { s.work = null; return; } // walked off
+  w.progress += dt / w.seconds;
+  if (w.progress < 1) return;
+  s.work = null;
+  s.safeT = SAFE_AFTER;
+  if (w.kind === 'search') {
+    const h = s.houses.find((x) => x.id === w.id)!;
+    h.searched = true;
+    s.events.push({ type: 'house-searched', id: h.id, loot: h.loot, ambush: h.ambush });
+    giveLoot(s, h.loot);
+    if (h.ambush) {
+      // one of them was inside: it comes through the door after you
+      const before = s.zombies.length;
+      addZombie(s, 'walker', { x: h.pos.x, y: h.pos.y - 1.6 }, false);
+      const z = s.zombies[before];
+      if (z) { z.alertT = ALERT_SECONDS; z.action = 'chase'; z.heading = Math.PI / 2; }
+    }
+  } else if (w.kind === 'talk') {
+    talkTo(s, s.survivors.find((x) => x.id === w.id)!);
+  } else {
+    const v = s.vehicles.find((x) => x.id === w.id)!;
+    v.fuel = Math.min(1, v.fuel + JERRYCAN_FUEL);
+    s.arsenal.cans--;
+    s.events.push({ type: 'refueled', id: v.id, from: 'can' });
+  }
+}
+
+// ---------------------------------------------------------------- survivors
+
+function talkTo(s: GameState, v: Survivor): void {
+  if (v.status === 'waiting') {
+    v.status = 'asked';
+    if (v.request === 'clear') {
+      // they were cornered: the infected around them come out of hiding
+      for (let k = 0; k < CLEAR_COUNT; k++) {
+        const a = (k / CLEAR_COUNT) * Math.PI * 2 + next(s.rng);
+        const r = range(s.rng, 7, 10);
+        const pos = { x: v.pos.x + Math.cos(a) * r, y: v.pos.y + Math.sin(a) * r };
+        if (s.map.blocked[cellOf(s.map, pos)] === 1) continue;
+        const id = s.nextZombieId;
+        addZombie(s, 'walker', pos, true);
+        v.targets.push(id);
+      }
+      if (v.targets.length === 0) v.status = 'ready';
+    }
+    s.events.push({ type: 'survivor-asked', id: v.id, first: true });
+    return;
+  }
+  if (v.status === 'ready' || (v.status === 'asked' && v.request === 'fetch' && v.carrying)) {
+    v.status = 'done';
+    v.carrying = false;
+    reward(s, v);
+    return;
+  }
+  s.events.push({ type: 'survivor-asked', id: v.id, first: false }); // a reminder
+}
+
+function reward(s: GameState, v: Survivor): void {
+  const a = s.arsenal;
+  let what = v.reward;
+  if (what === 'weapon') {
+    const w = (['shotgun', 'machete', 'rifle'] as const).find((x) => !a.owned.includes(x));
+    if (w) giveWeapon(s, w); else what = 'funds';
+  }
+  if (what === 'intel') {
+    if (!s.safehouseKnown) s.safehouseKnown = true; else what = 'funds';
+  }
+  if (what === 'ammo') for (const g of a.owned) if (isGun(g)) a.ammo[g] += GUNS[g].ammoPack;
+  if (what === 'funds') s.funds += SURVIVOR_FUNDS;
+  s.events.push({ type: 'survivor-done', id: v.id, reward: what });
+}
+
+function updateSurvivors(s: GameState): void {
+  for (const v of s.survivors) {
+    if (v.status !== 'asked') continue;
+    if (v.request === 'fetch' && !v.carrying && s.player.vehicleId === null && dist(v.fetchPos, s.player.pos) < PICKUP_RADIUS) {
+      v.carrying = true;
+      s.events.push({ type: 'fetched', id: v.id });
+    }
+    if (v.request === 'clear' && v.targets.every((id) => { const z = s.zombies.find((q) => q.id === id); return !z || z.action === 'dead'; })) {
+      v.status = 'ready';
+      s.events.push({ type: 'survivor-ready', id: v.id });
+    }
+  }
+}
+
+// ---------------------------------------------------------------- distractions: bottles, car alarms
+
+/** Everything within `radius` of a noise stops hunting and walks over to it. */
+function lure(s: GameState, pos: Vec2, radius: number, seconds: number): void {
+  for (const z of s.zombies) {
+    if (z.action === 'dead' || z.action === 'rise' || z.action === 'feed') continue;
+    if (dist(z.pos, pos) > radius) continue;
+    z.lure = { ...pos };
+    z.lureT = Math.max(z.lureT ?? 0, seconds);
+    z.alertT = 0;
+  }
+}
+
+function throwBottle(s: GameState): void {
+  const a = s.arsenal;
+  if (a.bottles <= 0) return;
+  const p = s.player.pos;
+  const hx = Math.cos(s.player.heading), hy = Math.sin(s.player.heading);
+  // it flies over cars and fences, but lands on open ground: pull it back if it would land inside something
+  let r = BOTTLE_RANGE;
+  let to = { x: p.x + hx * r, y: p.y + hy * r };
+  while (r > 2 && (to.x < 1 || to.y < 1 || to.x > s.map.size - 1 || to.y > s.map.size - 1 || s.map.blocked[cellOf(s.map, to)] === 1)) {
+    r -= 0.5;
+    to = { x: p.x + hx * r, y: p.y + hy * r };
+  }
+  a.bottles--;
+  s.thrown.push({ from: { ...p }, to, t: 0, dur: BOTTLE_FLIGHT });
+  s.events.push({ type: 'throw', to });
+}
+
+function updateThrown(s: GameState, dt: number): void {
+  for (const b of s.thrown) {
+    b.t += dt;
+    if (b.t < b.dur) continue;
+    s.events.push({ type: 'bottle-smash', pos: b.to });
+    lure(s, b.to, LURE_RADIUS, LURE_SECONDS);
+  }
+  s.thrown = s.thrown.filter((b) => b.t < b.dur);
+}
+
+function startAlarm(s: GameState, idx: number): void {
+  if (s.alarmUsed.includes(idx)) return;
+  const b = s.map.buildings[idx]!;
+  const pos = { x: b.x + b.w / 2, y: b.y + b.h / 2 };
+  s.alarmUsed.push(idx);
+  s.alarms.push({ car: idx, pos, t: ALARM_SECONDS });
+  s.events.push({ type: 'alarm-start', car: idx, pos });
+  lure(s, pos, ALARM_RADIUS, 2);
+}
+
+function updateAlarms(s: GameState, dt: number): void {
+  for (const al of s.alarms) {
+    al.t -= dt;
+    if (al.t > 0) lure(s, al.pos, ALARM_RADIUS, 2); // keeps calling while it sounds
+    else s.events.push({ type: 'alarm-stop', car: al.car });
+  }
+  s.alarms = s.alarms.filter((al) => al.t > 0);
+}
+
+// ---------------------------------------------------------------- fuel
+
+function burnFuel(s: GameState, v: Vehicle, dt: number): void {
+  if (v.fuel <= 0) return;
+  v.fuel = Math.max(0, v.fuel - (Math.abs(v.speed) / VEHICLES[v.kind].maxSpeed) * (dt / FUEL_SECONDS));
+  if (v.fuel === 0) s.events.push({ type: 'out-of-fuel', id: v.id });
+}
+
+/** Stopped at a gas pump in a car: the tank fills. */
+function pumpFuel(s: GameState, dt: number): void {
+  const v = playerVehicle(s);
+  const at = v && Math.abs(v.speed) < 1 && v.fuel < 1 && nearbyObstacles(s.map, v.pos, 4.5, []).some((i) => s.map.buildings[i]!.kind === 'pump');
+  if (!v || !at) { s.pumping = false; return; }
+  if (!s.pumping) s.events.push({ type: 'refueled', id: v.id, from: 'pump' });
+  s.pumping = true;
+  v.fuel = Math.min(1, v.fuel + PUMP_RATE * dt);
 }
 
 // ---------------------------------------------------------------- weapons, pickups and the store
@@ -404,6 +652,12 @@ function takePickups(s: GameState): void {
       const w = ammoTarget(s);
       a.ammo[w] += GUNS[w].ammoPack;
       s.events.push({ type: 'pickup', kind: 'ammo', amount: GUNS[w].ammoPack });
+    } else if (pk.kind === 'bottles') {
+      a.bottles += 3;
+      s.events.push({ type: 'pickup', kind: 'bottles', amount: 3 });
+    } else if (pk.kind === 'jerrycan') {
+      a.cans += 1;
+      s.events.push({ type: 'pickup', kind: 'jerrycan', amount: 1 });
     } else {
       giveWeapon(s, pk.kind);
       s.events.push({ type: 'pickup', kind: pk.kind, amount: isGun(pk.kind) ? GUNS[pk.kind].mag : 0 });
@@ -450,6 +704,8 @@ export function priceOf(s: GameState, item: StoreItem): number | null {
     case 'weapon': return a.owned.includes(item.weapon) ? null : WEAPON_PRICES[item.weapon];
     case 'ammo': return a.owned.includes(item.weapon) ? AMMO_PRICES[item.weapon] : null;
     case 'medkit': return MEDKIT_PRICE;
+    case 'bottles': return BOTTLES_PRICE;
+    case 'jerrycan': return JERRYCAN_PRICE;
     case 'upgrade': {
       if (!a.owned.includes(item.weapon)) return null;
       if (isMelee(item.weapon) && item.upgrade !== 'damage') return null;
@@ -471,6 +727,8 @@ export function buy(s: GameState, item: StoreItem): boolean {
     case 'weapon': giveWeapon(s, item.weapon); break;
     case 'ammo': a.ammo[item.weapon] += GUNS[item.weapon].ammoPack; break;
     case 'medkit': s.player.health = Math.min(PLAYER_HEALTH, s.player.health + MEDKIT_HEAL); break;
+    case 'bottles': a.bottles += 3; break;
+    case 'jerrycan': a.cans += 1; break;
     case 'upgrade': {
       a.upgrades[item.weapon][item.upgrade]++;
       // a bigger magazine comes loaded
@@ -618,13 +876,15 @@ function updateWeapons(s: GameState, input: Input, dt: number): void {
   }
 
   alertWithin(s, spec.noise);
+  const car = parkedCarNear(s, p, ALARM_SHOT_RADIUS); // shooting next to a parked car sets it off
+  if (car !== null) startAlarm(s, car);
 }
 
 /** Noise carries: everything within earshot comes looking. */
 function alertWithin(s: GameState, radius: number): void {
   const p = s.player.pos;
   for (const z of s.zombies) {
-    if (z.action !== 'dead' && z.action !== 'rise' && dist(z.pos, p) < radius) z.alertT = Math.max(z.alertT, ALERT_SECONDS);
+    if (z.action !== 'dead' && z.action !== 'rise' && dist(z.pos, p) < radius) { z.alertT = Math.max(z.alertT, ALERT_SECONDS); z.lureT = 0; }
   }
 }
 
@@ -728,7 +988,7 @@ function pushOutOfVehicle(v: Vehicle, p: Vec2, r: number): boolean {
 function drive(v: Vehicle, input: Input, dt: number): void {
   if (v.wrecked) return;
   const spec = VEHICLES[v.kind];
-  const mag = Math.min(1, Math.hypot(input.dx, input.dy));
+  const mag = v.fuel > 0 ? Math.min(1, Math.hypot(input.dx, input.dy)) : 0; // an empty tank coasts
   let target = 0;
   let steerTo: number | null = null;
   if (mag > 0.1) {
@@ -927,6 +1187,24 @@ function updateZombies(s: GameState, dt: number): void {
         lose(s, 'caught');
         return;
       }
+      continue;
+    }
+
+    // drawn to a noise: walk to it and mill about, unless you are right there
+    if ((z.lureT ?? 0) > 0 && z.lure && d > 4.5) {
+      z.lureT = (z.lureT ?? 0) - dt;
+      const lx = z.lure.x - z.pos.x, ly = z.lure.y - z.pos.y, ld = Math.hypot(lx, ly);
+      const before = { x: z.pos.x, y: z.pos.y };
+      const v = ld > 1.5 ? (z.kind === 'runner' ? RUNNER_SPEED * 0.7 : WALKER_SPEED_BY_TIER[s.tier]!) * s.zombieMul : 0;
+      z.action = v > 0 ? 'wander' : 'idle';
+      if (ld > 1e-6) {
+        z.pos.x += (lx / ld) * v * dt;
+        z.pos.y += (ly / ld) * v * dt;
+        if (v > 0) z.heading = Math.atan2(ly, lx);
+      }
+      resolve(s.map, z.pos, ZOMBIE_RADIUS);
+      for (const c of s.vehicles) pushOutOfVehicle(c, z.pos, ZOMBIE_RADIUS);
+      z.speed = dt > 0 ? Math.hypot(z.pos.x - before.x, z.pos.y - before.y) / dt : 0;
       continue;
     }
 

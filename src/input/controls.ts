@@ -5,7 +5,7 @@ const SQRT1_2 = Math.SQRT1_2;
 
 /**
  * Keyboard and touch. Movement: WASD/arrows or a floating stick (drag anywhere that is not a
- * button). Buttons: Fire (hold), Use, Reload, Swap. Keys: Space fire, E use, R reload, Q swap.
+ * button). Buttons: Fire (hold), Use, Reload, Swap, Throw. Keys: Space fire, E use, R reload, Q swap, G throw.
  * The stick's screen direction is rotated 45 degrees into world space (fixed camera yaw).
  */
 export class Controls {
@@ -14,7 +14,7 @@ export class Controls {
   private origin = { x: 0, y: 0 };
   private stickVec = { x: 0, y: 0 }; // screen space, y down
   private fireHeld = false;
-  private queued = { action: false, reload: false, swap: false };
+  private queued = { action: false, reload: false, swap: false, throw: false };
   enabled = true;
 
   constructor(surface: HTMLElement, private stick: HTMLElement, private knob: HTMLElement) {
@@ -23,6 +23,7 @@ export class Controls {
       this.keys.add(e.code);
       if (e.code === 'KeyE' || e.code === 'Enter') this.queued.action = true;
       if (e.code === 'KeyR') this.queued.reload = true;
+      if (e.code === 'KeyG') this.queued.throw = true;
       if (e.code === 'KeyQ' || e.code === 'Tab') { this.queued.swap = true; e.preventDefault(); }
       if (e.code === 'Space') e.preventDefault();
     });
@@ -71,6 +72,7 @@ export class Controls {
     button('btn-use', () => { this.queued.action = true; });
     button('btn-reload', () => { this.queued.reload = true; });
     button('btn-swap', () => { this.queued.swap = true; });
+    button('btn-throw', () => { this.queued.throw = true; });
   }
 
   /** Movement and buttons for one simulation step. Edge-triggered buttons fire once. */
@@ -90,8 +92,9 @@ export class Controls {
       action: this.queued.action,
       reload: this.queued.reload,
       swap: this.queued.swap,
+      throw: this.queued.throw,
     };
-    this.queued = { action: false, reload: false, swap: false };
+    this.queued = { action: false, reload: false, swap: false, throw: false };
     return input;
   }
 }

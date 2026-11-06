@@ -6,7 +6,8 @@ export interface Vec2 {
 export type ObstacleKind =
   | 'building' | 'tower' | 'house' | 'warehouse' | 'shop' | 'container'
   | 'car' | 'wreck' | 'dumpster' | 'barrel' | 'barricade' | 'lamp' | 'tree' | 'deadtree' | 'fence' | 'pump' | 'bench'
-  | 'water' | 'store';
+  | 'water' | 'store'
+  | 'bus' | 'truck' | 'sandbag' | 'ambulance' | 'hospital';
 
 export type District = 'downtown' | 'residential' | 'park' | 'industrial' | 'outskirts' | 'water';
 
@@ -23,7 +24,8 @@ export interface Block {
 
 /** Ground and overhead dressing with no collision (grass, dirt, a gas station canopy, pier planks). */
 export interface Decor {
-  kind: 'grass' | 'dirt' | 'canopy' | 'pier' | 'plaza' | 'lot';
+  kind: 'grass' | 'dirt' | 'canopy' | 'pier' | 'plaza' | 'lot'
+    | 'rubble' | 'litter' | 'luggage' | 'weeds' | 'fallenlamp' | 'scorch' | 'checkpoint';
   x: number;
   y: number;
   w: number;
@@ -67,6 +69,8 @@ export interface MapData {
   decor: Decor[];
   parking: ParkingSpot[]; // kerbside spots where drivable vehicles start
   storefronts: Storefront[];
+  /** Named places on the street (the checkpoint), for the map. Block landmarks live on blocks. */
+  labels: Array<{ name: string; x: number; y: number }>;
   /** Spatial hash of obstacle indices, `gridCell` units per cell, `gridN` x `gridN` cells. */
   grid: number[][];
   gridCell: number;
@@ -109,6 +113,9 @@ export interface Zombie {
   alertT: number; // heard gunfire: hunts the player regardless of sight
   wanderT: number;
   wanderDir: Vec2;
+  /** Drawn to a noise (a smashed bottle, a car alarm): walks there instead of hunting you. */
+  lure?: Vec2 | null;
+  lureT?: number;
 }
 
 export type VehicleKind = 'sedan' | 'pickup' | 'van';
@@ -122,16 +129,58 @@ export interface Vehicle {
   health: number;
   wrecked: boolean;
   tone: number; // paint, visual only
+  fuel: number; // 0..1; an empty tank coasts to a stop
 }
 
-export type Loot = 'medkit' | 'supplies' | 'ammo' | 'empty';
+export type Loot = 'medkit' | 'supplies' | 'ammo' | 'bottles' | 'empty';
+
+/** A house you can search: loot inside, and sometimes one of them. */
+export interface House {
+  id: number;
+  pos: Vec2; // outside the front door
+  loot: Loot;
+  ambush: boolean;
+  searched: boolean;
+}
+
+export type SurvivorRequest = 'clear' | 'fetch';
+export type SurvivorReward = 'funds' | 'ammo' | 'weapon' | 'intel';
+
+/** Someone holed up who wants help, and pays for it. */
+export interface Survivor {
+  id: number;
+  name: string;
+  pos: Vec2;
+  request: SurvivorRequest;
+  reward: SurvivorReward;
+  status: 'waiting' | 'asked' | 'ready' | 'done';
+  fetchPos: Vec2; // where the thing they need is (fetch)
+  carrying: boolean; // you have picked it up (fetch)
+  targets: number[]; // the zombies to clear (clear)
+  skin: number; // visual only
+}
+
+/** A car alarm going off: a noise everything nearby walks to. */
+export interface Alarm {
+  car: number; // index into map.buildings
+  pos: Vec2;
+  t: number; // seconds left
+}
+
+/** A bottle in the air. */
+export interface Thrown {
+  from: Vec2;
+  to: Vec2;
+  t: number; // seconds in flight so far
+  dur: number;
+}
 
 export type GunKind = 'pistol' | 'shotgun' | 'rifle';
 export type MeleeKind = 'baton' | 'bat' | 'machete';
 export type WeaponKind = GunKind | MeleeKind;
 export type UpgradeKind = 'damage' | 'mag' | 'reload';
 
-export type PickupKind = WeaponKind | 'ammo';
+export type PickupKind = WeaponKind | 'ammo' | 'bottles' | 'jerrycan';
 
 /** Lying in the street: walk over it to take it. */
 export interface Pickup {
@@ -146,7 +195,9 @@ export type StoreItem =
   | { kind: 'weapon'; weapon: WeaponKind }
   | { kind: 'ammo'; weapon: GunKind }
   | { kind: 'upgrade'; weapon: WeaponKind; upgrade: UpgradeKind }
-  | { kind: 'medkit' };
+  | { kind: 'medkit' }
+  | { kind: 'bottles' }
+  | { kind: 'jerrycan' };
 
 export interface Store {
   id: number;
@@ -168,7 +219,11 @@ export type Interaction =
   | { kind: 'enter'; vehicleId: number }
   | { kind: 'task'; taskId: TaskId }
   | { kind: 'crate'; crateId: number }
-  | { kind: 'store'; storeId: number };
+  | { kind: 'store'; storeId: number }
+  | { kind: 'house'; houseId: number }
+  | { kind: 'talk'; survivorId: number }
+  | { kind: 'refuel'; vehicleId: number }
+  | { kind: 'alarm'; car: number };
 
 export type Phase = 'playing' | 'won' | 'lost';
 export type LossReason = 'time' | 'caught';
@@ -199,6 +254,18 @@ export type GameEvent =
   | { type: 'vehicle-crash'; id: number; force: number }
   | { type: 'vehicle-wrecked'; id: number }
   | { type: 'zombie-attack'; id: number }
+  | { type: 'house-searched'; id: number; loot: Loot; ambush: boolean }
+  | { type: 'survivor-asked'; id: number; first: boolean }
+  | { type: 'survivor-ready'; id: number }
+  | { type: 'survivor-done'; id: number; reward: SurvivorReward }
+  | { type: 'fetched'; id: number }
+  | { type: 'refueled'; id: number; from: 'can' | 'pump' }
+  | { type: 'out-of-fuel'; id: number }
+  | { type: 'throw'; to: Vec2 }
+  | { type: 'bottle-smash'; pos: Vec2 }
+  | { type: 'alarm-start'; car: number; pos: Vec2 }
+  | { type: 'alarm-stop'; car: number }
+  | { type: 'work-started'; kind: 'search' | 'talk' | 'refuel' }
   | { type: 'won' }
   | { type: 'lost'; reason: LossReason };
 
@@ -212,4 +279,6 @@ export interface Input {
   /** Reload / switch weapon were pressed this step (edges). */
   reload?: boolean;
   swap?: boolean;
+  /** Throw a bottle was pressed this step (edge). */
+  throw?: boolean;
 }

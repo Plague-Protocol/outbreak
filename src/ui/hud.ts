@@ -23,6 +23,10 @@ function useLabel(it: Interaction | null): string | null {
     case 'enter': return 'GET IN';
     case 'crate': return 'SEARCH';
     case 'store': return 'ENTER';
+    case 'house': return 'SEARCH';
+    case 'talk': return 'TALK';
+    case 'refuel': return 'REFUEL';
+    case 'alarm': return 'ALARM';
     case 'task': return TASK_VERB[it.taskId];
   }
 }
@@ -46,6 +50,8 @@ export class Hud {
   private ammo = $('ammo');
   private weaponName = $('weapon-name');
   private fireBtn = $('btn-fire');
+  private throwBtn = $('btn-throw');
+  private bottles = $('bottles');
   private reloadBtn = $('btn-reload');
   private toastTimer = 0;
   private hurtTimer = 0;
@@ -112,10 +118,17 @@ export class Hud {
 
     // vitals
     this.healthBar.style.width = `${(s.player.health / PLAYER_HEALTH) * 100}%`;
-    this.funds.textContent = `$${s.funds}`;
+    this.funds.textContent = `$${s.funds}${s.arsenal.cans ? `  ·  Fuel can x${s.arsenal.cans}` : ''}`;
     const car = playerVehicle(s);
     this.carHealth.style.display = car ? 'block' : 'none';
-    if (car) this.carHealth.textContent = `Vehicle ${Math.round((car.health / VEHICLES[car.kind].health) * 100)}%`;
+    if (car) {
+      const fuel = Math.round(car.fuel * 100);
+      this.carHealth.textContent = `Vehicle ${Math.round((car.health / VEHICLES[car.kind].health) * 100)}%  ·  Fuel ${fuel}%${s.pumping ? ' (filling)' : fuel === 0 ? ' (empty)' : ''}`;
+      this.carHealth.style.color = fuel < 15 ? '#ff8a6a' : '';
+    }
+    const throwable = !car && s.arsenal.bottles > 0;
+    this.throwBtn.style.display = throwable ? 'flex' : 'none';
+    if (throwable) this.bottles.textContent = String(s.arsenal.bottles);
 
     // weapon and contextual Use button
     const a = s.arsenal;
@@ -142,8 +155,9 @@ export class Hud {
       this.arrow.style.display = 'none';
     }
 
-    this.hold.style.display = s.hold.taskId ? 'block' : 'none';
-    this.holdBar.style.width = `${Math.min(1, s.hold.progress) * 100}%`;
+    const progress = s.hold.taskId ? s.hold.progress : s.work ? s.work.progress : -1;
+    this.hold.style.display = progress >= 0 ? 'block' : 'none';
+    this.holdBar.style.width = `${Math.min(1, Math.max(0, progress)) * 100}%`;
   }
 
   showEnd(s: GameState): void {

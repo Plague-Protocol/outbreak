@@ -95,3 +95,38 @@ export const START_FUNDS = 50;
 
 // ---- safe while busy: zombies hold back while you work an objective or talk to someone
 export const SAFE_AFTER = 1.0; // seconds of grace after finishing, to step away
+
+// ---- the abandoned city
+export const PILEUPS = 3; // street segments choked by crashed cars (cars cannot pass; on foot, maybe)
+
+// ---- distractions
+export const START_BOTTLES = 2;
+export const BOTTLE_PICKUPS = 4;
+export const BOTTLE_RANGE = 11; // how far you throw
+export const BOTTLE_FLIGHT = 0.6; // seconds in the air
+export const LURE_RADIUS = 18; // a smashed bottle draws everything within this
+export const LURE_SECONDS = 6;
+export const ALARM_SECONDS = 10;
+export const ALARM_RADIUS = 30; // a car alarm carries much further
+export const ALARM_SHOT_RADIUS = 4; // gunfire this close to a parked car sets it off
+
+// ---- searchable houses
+export const HOUSE_COUNT = 12;
+export const SEARCH_SECONDS = 2.0;
+export const AMBUSH_CHANCE = 0.3;
+
+// ---- survivors with requests
+export const SURVIVOR_COUNT = 2;
+export const SURVIVOR_NAMES = ['Dana', 'Marcus', 'Ines', 'Theo', 'Ruth', 'Kofi'] as const;
+export const TALK_SECONDS = 1.0;
+export const CLEAR_COUNT = 4; // zombies that come for a survivor who asks to be cleared
+export const SURVIVOR_FUNDS = 70;
+
+// ---- fuel
+export const FUEL_SECONDS = 80; // seconds of driving at full speed on a full tank
+export const JERRYCAN_FUEL = 0.6;
+export const JERRYCAN_PICKUPS = 4;
+export const REFUEL_SECONDS = 1.5;
+export const PUMP_RATE = 0.3; // tank per second, stopped at a pump
+export const BOTTLES_PRICE = 10; // three bottles
+export const JERRYCAN_PRICE = 20;

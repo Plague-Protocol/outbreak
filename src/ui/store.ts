@@ -1,5 +1,5 @@
 import { buy, equip, gunStats, isGun, meleeStats, priceOf, type GameState } from '../core/state';
-import { GUNS, MEDKIT_HEAL, PLAYER_HEALTH, UPGRADE_EFFECT, UPGRADE_LEVELS, WEAPON_NAMES } from '../core/config';
+import { GUNS, JERRYCAN_FUEL, MEDKIT_HEAL, PLAYER_HEALTH, UPGRADE_EFFECT, UPGRADE_LEVELS, WEAPON_NAMES } from '../core/config';
 import type { GunKind, MeleeKind, Store, StoreItem, UpgradeKind, WeaponKind } from '../core/types';
 
 const $ = (id: string) => document.getElementById(id)!;
@@ -207,6 +207,16 @@ export class StorePage {
       row.innerHTML = `<span><b>Medkit</b><small>Heals ${MEDKIT_HEAL}. Your health: ${Math.round(s.player.health)}/${PLAYER_HEALTH}.</small></span>`;
       row.appendChild(this.priceButton({ kind: 'medkit' }, 'Medkit'));
       list.appendChild(row);
+      const row2 = document.createElement('div');
+      row2.className = 'row';
+      row2.innerHTML = `<span><b>Bottles (3)</b><small>Throw one to draw them away. You have ${s.arsenal.bottles}.</small></span>`;
+      row2.appendChild(this.priceButton({ kind: 'bottles' }, 'Bottles'));
+      list.appendChild(row2);
+      const row3 = document.createElement('div');
+      row3.className = 'row';
+      row3.innerHTML = `<span><b>Jerrycan</b><small>Fills a car tank by ${Math.round(JERRYCAN_FUEL * 100)}%. You have ${s.arsenal.cans}.</small></span>`;
+      row3.appendChild(this.priceButton({ kind: 'jerrycan' }, 'Jerrycan'));
+      list.appendChild(row3);
     }
   }
 }

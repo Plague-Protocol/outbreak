@@ -1,5 +1,5 @@
 import { createGame, currentTask, requiredDone, step, type GameState } from './core/state';
-import { briefFor, doneFor, INTRO, lockedTask, SAFEHOUSE_OPEN, safehouseLocked, shortName, tierLines } from './core/story';
+import { briefFor, doneFor, INTRO, lockedTask, SAFEHOUSE_OPEN, safehouseLocked, shortName, survivorLines, tierLines } from './core/story';
 import type { GameEvent, TaskId } from './core/types';
 import { GameView } from './render/view';
 import { loadCharacterAssets } from './render/characters';
@@ -125,12 +125,34 @@ function narrate(events: readonly GameEvent[]): void {
         break;
       case 'player-hit': hud.hurt(); view.shake(0.4); break;
       case 'pickup':
-        hud.toast(e.kind === 'ammo' ? `+${e.amount} ammo` : `Picked up: ${WEAPON_NAMES[e.kind]}`);
+        hud.toast(e.kind === 'ammo' ? `+${e.amount} ammo`
+          : e.kind === 'bottles' ? `+${e.amount} bottles: throw one (G) to draw them away`
+            : e.kind === 'jerrycan' ? 'Jerrycan: fill up a car (stand by it, REFUEL)'
+              : `Picked up: ${WEAPON_NAMES[e.kind]}`);
         break;
       case 'crate-opened':
         hud.toast(e.loot === 'medkit' ? 'Medkit: +health' : e.loot === 'supplies' ? 'Supplies: +$25' : e.loot === 'ammo' ? 'Ammo' : 'Empty');
         break;
-      case 'vehicle-enter': hud.toast('Drive with the stick. Run them down.'); break;
+      case 'vehicle-enter': {
+        const v = state.vehicles.find((x) => x.id === e.id);
+        hud.toast(v && v.fuel < 0.15 ? 'Almost no fuel. Find a jerrycan or the gas station.' : 'Drive with the stick. Run them down.');
+        break;
+      }
+      case 'out-of-fuel': hud.toast('Out of fuel. It rolls to a stop.'); break;
+      case 'refueled': hud.toast(e.from === 'pump' ? 'Filling up at the pump...' : 'Refuelled.'); break;
+      case 'house-searched':
+        hud.toast(`${e.loot === 'medkit' ? 'First aid: +health' : e.loot === 'supplies' ? 'Cash in a drawer: +$25' : e.loot === 'ammo' ? 'A box of rounds' : e.loot === 'bottles' ? 'Empty bottles' : 'Nothing worth taking'}${e.ambush ? '. Something moves inside!' : ''}`);
+        if (e.ambush) view.shake(0.4);
+        break;
+      case 'alarm-start': hud.toast('Car alarm! Everything nearby is heading for it.'); break;
+      case 'survivor-asked': {
+        const v = state.survivors.find((x) => x.id === e.id);
+        if (v) dialogue.say(survivorLines(v, e.first ? 'asked' : 'reminder'));
+        break;
+      }
+      case 'survivor-ready': { const v = state.survivors.find((x) => x.id === e.id); if (v) dialogue.say(survivorLines(v, 'ready')); break; }
+      case 'fetched': { const v = state.survivors.find((x) => x.id === e.id); if (v) dialogue.say(survivorLines(v, 'fetched')); break; }
+      case 'survivor-done': { const v = state.survivors.find((x) => x.id === e.id); if (v) dialogue.say(survivorLines(v, 'done', e.reward)); break; }
       case 'vehicle-wrecked': hud.toast('The engine dies. Get out!'); view.shake(0.8); break;
       case 'empty': hud.toast('Out of ammo. Swap to your baton (Q), or buy rounds at a weapon store.'); break;
       case 'store-open': {

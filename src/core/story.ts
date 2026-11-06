@@ -4,7 +4,7 @@
 //
 // Setting: Port Halden, an invented harbour city, on the night a virus empties it. Universal on
 // purpose: no real places, no real organisations.
-import type { LossReason, TaskId } from './types';
+import type { LossReason, Survivor, SurvivorReward, TaskId } from './types';
 
 export interface Line {
   who: string;
@@ -135,6 +135,30 @@ export function lockedTask(needs: string[]): Line[] {
 }
 
 export const STORE_LINES: Line[] = [L(`${HERO}|Nobody at the counter. I'll leave the money anyway.`)];
+
+/** What a survivor says, in their own name. */
+export function survivorLines(v: Survivor, moment: 'asked' | 'reminder' | 'fetched' | 'ready' | 'done', reward?: SurvivorReward): Line[] {
+  const me = v.name;
+  switch (moment) {
+    case 'asked':
+      return v.request === 'fetch'
+        ? [L(`${me}|Thank God, a living face. My medical bag, I dropped it running. It's on the street a couple of blocks from here. Bring it back and I'll make it worth your while.`), L(`${HERO}|Stay down. I'll find it.`)]
+        : [L(`${me}|Don't shout! They're all around this corner, waiting for me to move. Clear them out and I'll make it worth your while.`), L(`${HERO}|Stay behind me.`)];
+    case 'reminder':
+      return [L(v.request === 'fetch' ? `${me}|The bag. Please. It's marked on your map.` : `${me}|They're still out there. I can hear them.`)];
+    case 'fetched':
+      return [L(`${HERO}|Got the bag. Back to ${me}.`)];
+    case 'ready':
+      return [L(`${me}|That's the last of them. Come here, quick.`)];
+    case 'done': {
+      const gift = reward === 'weapon' ? `Take this. I can't use it, you can.`
+        : reward === 'ammo' ? `Here, all the rounds I've got. I never fired a shot.`
+          : reward === 'intel' ? `The evac point: I heard it on the police band. I've marked it on your map.`
+            : `It's all the cash I had on me. It won't buy my way out, maybe it buys yours.`;
+      return [L(`${me}|${gift}`), L(`${HERO}|Keep your head down. Someone will come.`)];
+    }
+  }
+}
 
 export interface Ending {
   title: string;

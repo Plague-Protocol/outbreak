@@ -13,7 +13,7 @@ const DISTRICT_COLORS: Record<string, string> = {
 };
 const SOLID_COLORS: Record<string, string> = {
   tower: '#15161a', building: '#15161a', shop: '#2a2622', house: '#4a3a30', warehouse: '#24272c', container: '#5a3a2a',
-  store: '#8c2422', tree: '#2e5a33', deadtree: '#4a4136', water: '#0f2a3d',
+  store: '#8c2422', hospital: '#c8c8c0', bus: '#6a6a60', truck: '#3f4628', sandbag: '#7a6a4a', ambulance: '#d8d8d2', tree: '#2e5a33', deadtree: '#4a4136', water: '#0f2a3d',
 };
 
 /** Static map image (roads, districts, buildings), drawn once per night. */
@@ -53,7 +53,14 @@ function markers(s: GameState): Marker[] {
   }
   if (s.safehouseKnown) out.push({ pos: s.safehouse, color: requiredDone(s) ? '#3ddc84' : '#d9534f', size: 8, shape: 'ring', label: 'Evac' });
   for (const st of s.stores) out.push({ pos: st.pos, color: '#ff4b4b', size: 6, shape: 'cash', label: 'Weapons' });
-  for (const p of s.pickups) if (!p.taken && p.kind !== 'ammo') out.push({ pos: p.pos, color: p.kind === 'bat' || p.kind === 'machete' ? '#d0a070' : '#f2d060', size: 3.5, shape: 'dot' });
+  for (const v of s.survivors) {
+    if (v.status === 'done') continue;
+    out.push({ pos: v.pos, color: '#7fe08a', size: 6, shape: 'ring', label: v.name });
+    if (v.request === 'fetch' && v.status === 'asked' && !v.carrying) out.push({ pos: v.fetchPos, color: '#7fe08a', size: 4, shape: 'dot', label: `${v.name}'s bag` });
+  }
+  for (const h of s.houses) if (!h.searched) out.push({ pos: h.pos, color: '#c8d4ee', size: 2.2, shape: 'dot' });
+  for (const p of s.pickups) if (!p.taken && p.kind === 'jerrycan') out.push({ pos: p.pos, color: '#e05030', size: 3, shape: 'square' });
+  for (const p of s.pickups) if (!p.taken && p.kind !== 'ammo' && p.kind !== 'bottles' && p.kind !== 'jerrycan') out.push({ pos: p.pos, color: p.kind === 'bat' || p.kind === 'machete' ? '#d0a070' : '#f2d060', size: 3.5, shape: 'dot' });
   for (const v of s.vehicles) if (!v.wrecked && v.id !== s.player.vehicleId) out.push({ pos: v.pos, color: '#e8e8e8', size: 3, shape: 'square' });
   return out;
 }
@@ -218,6 +225,7 @@ export class CityMap {
       const m = toMap({ x: down.reduce((a, b) => a + b.x + b.size / 2, 0) / down.length, y: down.reduce((a, b) => a + b.y + b.size / 2, 0) / down.length });
       g.fillText('Downtown', m.x, m.y);
     }
+    for (const l of s.map.labels) { const m = toMap(l); g.fillText(l.name, m.x, m.y); }
     const water = s.map.buildings.find((o) => o.kind === 'water');
     if (water) { const m = toMap({ x: s.map.size / 2, y: water.y + 12 }); g.fillText('Harbour', m.x, m.y); }
     for (const mk of markers(s)) { const m = toMap(mk.pos); drawMarker(g, mk, m.x, m.y, dpr * 0.9, true); }

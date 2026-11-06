@@ -160,21 +160,46 @@ function ammoMesh(): Mesh {
   return new Mesh(b.build(), new MeshLambertMaterial({ vertexColors: true }));
 }
 
-/** A pickup lying where someone dropped it: a gun on its side or an ammo can, with a glint. */
+/** One glass bottle, standing, base at y = 0 (also what you throw). */
+export function bottleMesh(): Mesh {
+  const b = new MeshBuilder().prism(0, 0.15, 0, 0.08, 0.3, 6, 0x2f6a3a, 0x3a7a46).prism(0, 0.36, 0, 0.035, 0.14, 5, 0x2f6a3a);
+  return new Mesh(b.build(), new MeshLambertMaterial({ vertexColors: true, emissive: 0x0a140c }));
+}
+
+/** Three bottles, to throw. */
+function bottlesMesh(): Mesh {
+  const b = new MeshBuilder();
+  for (const [x, z, col] of [[0, 0, 0x2f6a3a], [0.2, 0.1, 0x6a4a22], [0.05, 0.22, 0x2f6a3a]] as const) {
+    b.prism(x, 0.15, z, 0.08, 0.3, 6, col, new Color(col).offsetHSL(0, 0, 0.08).getHex()).prism(x, 0.36, z, 0.035, 0.14, 5, col);
+  }
+  return new Mesh(b.build(), new MeshLambertMaterial({ vertexColors: true, emissive: 0x0a140c }));
+}
+
+/** A red jerrycan. */
+function jerrycanMesh(): Mesh {
+  const b = new MeshBuilder()
+    .box(0, 0.32, 0, 0.46, 0.62, 0.22, 0xa52a1e, 0xb8352a)
+    .box(-0.05, 0.67, 0, 0.26, 0.08, 0.06, 0x7d1f16)
+    .box(0.17, 0.68, 0, 0.06, 0.1, 0.06, 0x2a2b2e);
+  return new Mesh(b.build(), new MeshLambertMaterial({ vertexColors: true, emissive: 0x0a0a0a }));
+}
+
+/** A pickup lying where someone dropped it: a gun on its side, an ammo can, bottles, a jerrycan;
+ * with a glint. */
 export function pickupMesh(kind: PickupKind, yaw: number): Group {
   const g = new Group();
-  const item = kind === 'ammo' ? ammoMesh() : weaponMesh(kind);
+  const item = kind === 'ammo' ? ammoMesh() : kind === 'bottles' ? bottlesMesh() : kind === 'jerrycan' ? jerrycanMesh() : weaponMesh(kind);
   if (kind === 'baton' || kind === 'bat' || kind === 'machete') {
     item.rotation.set(0, 0, Math.PI / 2); // lying along the ground
     item.position.y = 0.07;
-  } else if (kind !== 'ammo') {
+  } else if (kind === 'pistol' || kind === 'shotgun' || kind === 'rifle') {
     item.rotation.set(Math.PI / 2, 0, 0); // on its side, flat on the ground
     item.position.y = 0.05;
   }
   const holder = new Group();
   holder.rotation.y = yaw;
   holder.add(item);
-  g.add(holder, glint(kind === 'ammo' ? 0.55 : 0.3));
+  g.add(holder, glint(kind === 'ammo' || kind === 'jerrycan' ? 0.75 : kind === 'bottles' ? 0.6 : 0.3));
   return g;
 }
 

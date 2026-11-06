@@ -266,6 +266,62 @@ export class Sound {
     }
   }
 
+  /** Breaking glass: a bright noise burst with a few tinkling partials. */
+  smash(pan: number): void {
+    const ctx = this.ctx!, at = ctx.currentTime;
+    const n = this.noiseSrc(at, 0.35);
+    const hp = ctx.createBiquadFilter();
+    hp.type = 'highpass';
+    hp.frequency.value = 2500;
+    const g = ctx.createGain();
+    this.env(g, at, 0.35, 0.002, 0.3);
+    const p = ctx.createStereoPanner();
+    p.pan.value = pan;
+    n.connect(hp).connect(g).connect(p).connect(this.sfx);
+    for (let k = 0; k < 4; k++) {
+      const o = ctx.createOscillator();
+      o.frequency.value = 3000 + Math.random() * 3000;
+      const og = ctx.createGain();
+      const t = at + 0.03 + k * 0.05;
+      this.env(og, t, 0.05, 0.001, 0.08);
+      o.connect(og).connect(p);
+      o.start(t);
+      o.stop(t + 0.1);
+    }
+  }
+
+  /** A car alarm: the classic two-tone whoop, for as long as it sounds. */
+  private alarmOsc = new Map<number, { o: OscillatorNode; g: GainNode; p: StereoPannerNode }>();
+  alarm(car: number, on: boolean): void {
+    const ctx = this.ctx!;
+    if (on && !this.alarmOsc.has(car)) {
+      const o = ctx.createOscillator();
+      o.type = 'square';
+      const lfo = ctx.createOscillator();
+      lfo.frequency.value = 2.2;
+      const depth = ctx.createGain();
+      depth.gain.value = 350;
+      lfo.connect(depth).connect(o.frequency);
+      o.frequency.value = 900;
+      const lp = ctx.createBiquadFilter();
+      lp.type = 'lowpass';
+      lp.frequency.value = 2200;
+      const g = ctx.createGain();
+      g.gain.value = 0;
+      const p = ctx.createStereoPanner();
+      o.connect(lp).connect(g).connect(p).connect(this.sfx);
+      o.start();
+      lfo.start();
+      this.alarmOsc.set(car, { o, g, p });
+    } else if (!on) {
+      const a = this.alarmOsc.get(car);
+      if (!a) return;
+      a.g.gain.setTargetAtTime(0, ctx.currentTime, 0.05);
+      a.o.stop(ctx.currentTime + 0.3);
+      this.alarmOsc.delete(car);
+    }
+  }
+
   gunshot(kind: GunKind): void {
     const ctx = this.ctx!, at = ctx.currentTime;
     const big = kind === 'shotgun', sharp = kind === 'rifle';
@@ -360,9 +416,22 @@ export class Sound {
       this.engine!.osc2.frequency.setTargetAtTime(f * 0.5, this.ctx.currentTime, 0.08);
       this.engine!.lp.frequency.setTargetAtTime(300 + Math.abs(car.speed) * 60, this.ctx.currentTime, 0.1);
     } else this.engineOff();
+    // car alarms: louder the closer you are, panned to where the car is; silenced on a new night
+    for (const [car, a] of this.alarmOsc) {
+      const al = s.alarms.find((x) => x.car === car);
+      if (!al || s.phase !== 'playing') { this.alarm(car, false); continue; }
+      const d = Math.hypot(al.pos.x - p.x, al.pos.y - p.y);
+      a.g.gain.setTargetAtTime(0.09 / (1 + d / 12), this.ctx.currentTime, 0.1);
+      a.p.pan.setTargetAtTime(panOf(al.pos.x, al.pos.y), this.ctx.currentTime, 0.1);
+    }
     for (const e of events) {
       if (e.type === 'shot') this.gunshot(e.weapon);
       else if (e.type === 'swing') this.swing(e.hits, e.weapon === 'bat');
+      else if (e.type === 'throw') this.swing(0, false);
+      else if (e.type === 'bottle-smash') this.smash(panOf(e.pos.x, e.pos.y));
+      else if (e.type === 'alarm-start') this.alarm(e.car, true);
+      else if (e.type === 'alarm-stop') this.alarm(e.car, false);
+      else if (e.type === 'house-searched' || e.type === 'survivor-done' || e.type === 'refueled') this.chime();
       else if (e.type === 'equip') this.click();
       else if (e.type === 'reload') this.click();
       else if (e.type === 'empty') this.click(true);

@@ -6,7 +6,7 @@ import {
 import { Actor, type CharacterAssets, type ClipName } from './characters';
 import { buildCity, type CityMeshes, type LightSource } from './city';
 import { MeshBuilder } from './mesh';
-import { Effects, Evac, pickupMesh, pulseGlint, storefrontMesh, storyItem, vehicleMesh, weaponMesh, wreckVehicle } from './props';
+import { bottleMesh, Effects, Evac, glint, pickupMesh, pulseGlint, storefrontMesh, storyItem, vehicleMesh, weaponMesh, wreckVehicle } from './props';
 import { currentTask, gunStats, isGun, playerSpeed, playerVehicle, requiredDone, type GameState } from '../core/state';
 import { ATTACK_WINDUP, MELEE, SAFEHOUSE_RADIUS, TASK_RADIUS } from '../core/config';
 import type { GameEvent, TaskId, Vec2, WeaponKind, Zombie } from '../core/types';
@@ -48,6 +48,18 @@ export class GameView {
   private extras: Array<{ actor: Actor; task: TaskId }> = [];
   /** Objective props that change with the task: items you take vanish, the gate swings open. */
   private taskItems: Array<{ group: Group; task: TaskId; whenDone: boolean }> = [];
+  /** Searchable house doors (a glint until searched). */
+  private houseGlints = new Map<number, Object3D>();
+  /** Survivors: their character, the glint over them, and the bag they want back. */
+  private survivors = new Map<number, { actor: Actor; glint: Object3D; bag: Group }>();
+  /** A car alarm: hazard lights blinking on the parked car. */
+  private alarmLights = new Map<number, Mesh>();
+  private bottle: Mesh = (() => { // the bottle in flight: oversized and catching the light, so you can follow it
+    const m = bottleMesh();
+    m.scale.setScalar(2.2);
+    (m.material as MeshLambertMaterial).emissive.setHex(0x3a6a48);
+    return m;
+  })();
   private level = new Group(); // everything rebuilt per night
   private vehicles = new Map<number, { group: Group; wrecked: boolean }>();
   private pickups = new Map<number, Group>();
@@ -151,6 +163,11 @@ export class GameView {
     for (const e of this.extras) { this.scene.remove(e.actor.root); e.actor.dispose(); }
     this.extras = [];
     this.taskItems = [];
+    for (const v of this.survivors.values()) { this.scene.remove(v.actor.root); v.actor.dispose(); }
+    this.survivors.clear();
+    this.houseGlints.clear();
+    for (const m of this.alarmLights.values()) this.scene.remove(m);
+    this.alarmLights.clear();
     this.scene.remove(this.level);
     this.level = new Group();
     this.scene.add(this.level);
@@ -176,6 +193,26 @@ export class GameView {
     this.crates.frustumCulled = false;
     this.level.add(this.crates);
     this.level.add(this.buildTaskProps(s));
+    for (const h of s.houses) {
+      const g = glint(1.1, 0xdde8ff);
+      g.position.set(h.pos.x, this.groundAt(s, h.pos) + 1.1, h.pos.y - 0.6);
+      this.level.add(g);
+      this.houseGlints.set(h.id, g);
+    }
+    for (const v of s.survivors) {
+      const actor = new Actor(this.assets, v.skin ? 'humanFemaleA' : 'humanMaleA');
+      actor.play('Idle', { fade: 0 });
+      actor.update(v.pos.x, v.pos.y, Math.atan2(s.player.pos.y - v.pos.y, s.player.pos.x - v.pos.x), 0.016, true);
+      this.scene.add(actor.root);
+      const gl = glint(3.4, 0x9effa8);
+      gl.position.set(v.pos.x, 3.4, v.pos.y);
+      const bag = storyItem('medkit');
+      bag.position.set(v.fetchPos.x, this.groundAt(s, v.fetchPos), v.fetchPos.y);
+      this.level.add(gl, bag);
+      this.survivors.set(v.id, { actor, glint: gl, bag });
+    }
+    this.bottle.visible = false;
+    this.scene.add(this.bottle);
     this.evac.group.position.set(s.safehouse.x, 0.1, s.safehouse.y);
     this.evac.reset();
     this.wasCaught = false;
@@ -300,6 +337,28 @@ export class GameView {
           break;
         }
         case 'reload': this.player.setUpper('ReloadUpper', { timeScale: 1.667 / gunStats(s.arsenal, e.weapon).reload }); break;
+        case 'throw': this.lastSwing = this.time; this.player.setUpper('Swing2Upper', { restart: true, timeScale: 1.4 }); break;
+        case 'bottle-smash': this.effects.burst(new Vector3(e.pos.x, 0.4, e.pos.y), 0x9fd8b0, 12, 3); break;
+        case 'alarm-start': {
+          const b = s.map.buildings[e.car];
+          if (!b) break;
+          const lights = new MeshBuilder();
+          for (const [x, z] of [[b.x - 0.05, b.y + 0.3], [b.x + b.w + 0.05, b.y + 0.3], [b.x - 0.05, b.y + b.h - 0.3], [b.x + b.w + 0.05, b.y + b.h - 0.3]]) {
+            lights.box(x!, 0.95, z!, 0.25, 0.18, 0.25, 0xffa020);
+          }
+          const m = new Mesh(lights.build(), new MeshBasicMaterial({ vertexColors: true }));
+          this.scene.add(m);
+          this.alarmLights.set(e.car, m);
+          this.lightSources.push({ pos: new Vector3(b.x + b.w / 2, 1.6, b.y + b.h / 2), color: 0xffa020, kind: 'lamp', broken: true });
+          break;
+        }
+        case 'alarm-stop': {
+          const m = this.alarmLights.get(e.car);
+          if (m) { this.scene.remove(m); this.alarmLights.delete(e.car); }
+          const b = s.map.buildings[e.car];
+          if (b) this.lightSources = this.lightSources.filter((l) => !(l.color === 0xffa020 && Math.abs(l.pos.x - (b.x + b.w / 2)) < 0.01 && Math.abs(l.pos.z - (b.y + b.h / 2)) < 0.01));
+          break;
+        }
         case 'swing': {
           // alternate forehand and backhand; speed the clip up to fit the weapon's swing time
           this.lastSwing = this.time;
@@ -354,19 +413,21 @@ export class GameView {
     if (caught && !this.wasCaught) { this.wasCaught = true; this.player.setUpper(null); this.player.play('Death', { once: true, fade: 0.15 }); }
     else if (!caught && !car) {
       const hold = s.hold.taskId;
+      const work = s.work;
       if (hold && playerSpeed(s) < 0.6) this.player.play(KNEEL_TASKS.includes(hold) ? 'Kneel' : 'Interact', { fade: 0.25 });
+      else if (work && playerSpeed(s) < 0.6) this.player.play(work.kind === 'refuel' ? 'Kneel' : work.kind === 'talk' ? 'Talk' : 'Interact', { fade: 0.25 });
       else if (s.phase === 'won') this.player.play('Idle', { fade: 0.3 });
       else this.player.locomote(playerSpeed(s));
       // gun up while shooting or reloading, lowered otherwise
       const a = s.arsenal;
-      if (hold) this.player.setUpper(null);
+      if (hold || work) this.player.setUpper(null);
       else if (a.weapon && !isGun(a.weapon)) { if (this.time - this.lastSwing > 0.6) this.player.setUpper(null); }
       else if (a.reloadT > 0 && a.weapon) this.player.setUpper('ReloadUpper', { timeScale: 1.667 / gunStats(a, a.weapon).reload });
       else if (this.time - this.lastShot < 1.2) { if (this.time - this.lastShot > 0.35) this.player.setUpper('AimUpper'); }
       else this.player.setUpper(null);
     }
     this.player.update(p.x, p.y, s.player.heading, dt, true);
-    this.updateGun(s, !car && !caught && !s.hold.taskId);
+    this.updateGun(s, !car && !caught && !s.hold.taskId && !s.work);
 
     // flashlight from the chest (or headlights from the car), pointing where you face
     const yawP = car ? Math.PI / 2 - car.heading : this.player.yawAngle;
@@ -397,6 +458,36 @@ export class GameView {
       if (!g) continue;
       g.visible = !pk.taken;
       if (g.visible) pulseGlint(g.getObjectByName('glint')!, this.time, pk.id * 0.37);
+    }
+    for (const h of s.houses) {
+      const g = this.houseGlints.get(h.id);
+      if (!g) continue;
+      g.visible = !h.searched;
+      if (g.visible) pulseGlint(g, this.time, h.id * 0.29);
+    }
+    for (const v of s.survivors) {
+      const r = this.survivors.get(v.id);
+      if (!r) continue;
+      const near = Math.hypot(s.player.pos.x - v.pos.x, s.player.pos.y - v.pos.y);
+      // they turn to you when you come close, and talk while you are with them
+      const talking = s.work?.kind === 'talk' && s.work.id === v.id;
+      r.actor.play(talking ? 'Talk' : 'Idle', { fade: 0.3 });
+      const face = near < 10 ? Math.atan2(s.player.pos.y - v.pos.y, s.player.pos.x - v.pos.x) : Math.PI / 2 - r.actor.yawAngle;
+      r.actor.update(v.pos.x, v.pos.y, face, dt, near < 40);
+      const something = v.status === 'waiting' || v.status === 'ready' || (v.status === 'asked' && v.carrying);
+      r.glint.visible = something;
+      if (something) pulseGlint(r.glint, this.time, v.id);
+      r.bag.visible = v.request === 'fetch' && v.status === 'asked' && !v.carrying;
+      const bg = r.bag.getObjectByName('glint');
+      if (bg && r.bag.visible) pulseGlint(bg, this.time, v.id + 0.5);
+    }
+    for (const m of this.alarmLights.values()) m.visible = Math.sin(this.time * 9) > 0;
+    const tb = s.thrown[0];
+    this.bottle.visible = !!tb;
+    if (tb) {
+      const k = Math.min(1, tb.t / tb.dur);
+      this.bottle.position.set(tb.from.x + (tb.to.x - tb.from.x) * k, 1.5 + Math.sin(k * Math.PI) * 2.6 - k * 1.2, tb.from.y + (tb.to.y - tb.from.y) * k);
+      this.bottle.rotation.set(this.time * 14, 0, this.time * 9);
     }
     for (const it of this.taskItems) {
       const done = !!s.tasks.find((t) => t.id === it.task)?.done;

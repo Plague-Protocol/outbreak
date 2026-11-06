@@ -87,6 +87,53 @@ export function buildCity(map: MapData, seed: number): CityMeshes {
         lights.push({ pos: new Vector3(d.x + d.w / 2, 4.4, d.y + d.h / 2), color: 0xe8f0ff, kind: 'flood', broken: true });
         break;
       }
+      case 'rubble': { // broken concrete and brick
+        const n2 = int(rng, 5, 9);
+        for (let k = 0; k < n2; k++) {
+          const x = d.x + range(rng, 0, d.w), z = d.y + range(rng, 0, d.h), sz = range(rng, 0.3, 0.9);
+          sb.box(x, sz * 0.3, z, sz, sz * 0.6, sz * range(rng, 0.6, 1.2), pick(rng, [0x4a4a4c, 0x5a5550, 0x5a3a2e, 0x3a3a3c]), pick(rng, [0x5a5a5c, 0x6a6560]));
+        }
+        break;
+      }
+      case 'litter': { // paper, cups, a newspaper blowing about
+        const n2 = int(rng, 3, 6);
+        for (let k = 0; k < n2; k++) {
+          const x = d.x + range(rng, 0, d.w), z = d.y + range(rng, 0, d.h), sz = range(rng, 0.15, 0.45);
+          sb.floor(x, z, x + sz, z + sz * range(rng, 0.6, 1.4), 0.03 + k * 0.002, pick(rng, [0x9a9690, 0x7a7670, 0x8a8a92, 0x6a5a48]));
+        }
+        break;
+      }
+      case 'luggage': { // a suitcase or two, dropped running
+        const col = pick(rng, [0x2a3a5a, 0x5a2222, 0x222428, 0x3a4a2a]);
+        sb.box(d.x + d.w * 0.3, 0.2, d.y + d.h * 0.5, 0.75, 0.4, 0.5, col, new Color(col).offsetHSL(0, 0, 0.06).getHex());
+        if (chance(rng, 0.6)) sb.box(d.x + d.w * 0.75, 0.15, d.y + d.h * 0.3, 0.55, 0.3, 0.4, 0x4a3a2a);
+        if (chance(rng, 0.5)) sb.floor(d.x + d.w * 0.5, d.y + d.h * 0.6, d.x + d.w * 0.5 + 0.5, d.y + d.h * 0.6 + 0.35, 0.03, 0xb8b4a8); // spilled clothes
+        break;
+      }
+      case 'weeds': { // an overgrown lot
+        sb.floor(d.x, d.y, d.x + d.w, d.y + d.h, 0.165, 0x26331f);
+        const n2 = int(rng, 6, 10);
+        for (let k = 0; k < n2; k++) sb.prism(d.x + range(rng, 0.5, d.w - 0.5), 0.45, d.y + range(rng, 0.5, d.h - 0.5), range(rng, 0.25, 0.5), range(rng, 0.5, 1.1), 4, 0x2f4a24, 0x3a5a2c);
+        break;
+      }
+      case 'fallenlamp': { // a street light knocked down across the pavement
+        const alongX = d.w > d.h;
+        const x1 = alongX ? d.x + d.w : d.x, z1 = alongX ? d.y : d.y + d.h;
+        sb.box(d.x + d.w / 2, 0.3, d.y + d.h / 2, alongX ? d.w : 0.22, 0.22, alongX ? 0.22 : d.h, 0x3a3d42);
+        sb.box(x1, 0.3, z1, 0.5, 0.25, 0.5, 0x2a2a2a);
+        sb.disc(x1, z1, 0.8, 0.02, 0x6a7078, 7, 0.6, int(rng, 1, 1e6)); // shattered glass
+        break;
+      }
+      case 'scorch': sb.disc(d.x + d.w / 2, d.y + d.h / 2, Math.max(d.w, d.h) / 2, 0.018, 0x0d0c0b, 10, 0.55, int(rng, 1, 1e6)); break;
+      case 'checkpoint': { // a floodlight mast, half the lamps dead
+        const x = d.x, z = d.y;
+        sb.box(x, 3.2, z, 0.2, 6.4, 0.2, 0x2a2b2e);
+        sb.box(x, 6.4, z, 1.6, 0.5, 0.4, 0x2a2b2e);
+        G(x, z).box(x - 0.4, 6.35, z + 0.22, 0.5, 0.35, 0.05, 0xf4f7ff);
+        G(x, z).box(x + 0.4, 6.35, z + 0.22, 0.5, 0.35, 0.05, 0x2a2a2a);
+        lights.push({ pos: new Vector3(x, 6, z + 1), color: 0xe8f0ff, kind: 'flood', broken: true });
+        break;
+      }
     }
   }
   for (let k = 0; k <= BLOCKS; k++) {
@@ -125,7 +172,9 @@ export function buildCity(map: MapData, seed: number): CityMeshes {
         // awning and a lit window on the street side
         const awn = pick(rng, [0x7a2a24, 0x245a6a, 0x6a5a24, 0x3a3a44]);
         s.box(cx, 2.9, b.y + b.h + 0.6, b.w * 0.8, 0.15, 1.2, awn);
-        if (chance(rng, 0.5)) g.facade('z+', b.y + b.h + 0.03, b.x + 1, b.x + b.w - 1, 0.6, 2.3, 0xd8c08a);
+        if (chance(rng, 0.35)) g.facade('z+', b.y + b.h + 0.03, b.x + 1, b.x + b.w - 1, 0.6, 2.3, 0xd8c08a);
+        else if (chance(rng, 0.5)) for (let x = b.x + 1.2; x < b.x + b.w - 1; x += 0.9) s.box(x, 1.45, b.y + b.h + 0.05, 0.8, 1.8, 0.05, 0x6a5236); // boarded up
+        else s.disc(cx, b.y + b.h + 1, 1.2, 0.02, 0x5a6068, 8, 0.6, int(rng, 1, 1e6)); // the window is glass on the pavement
         break;
       }
       case 'house': house(b); break;
@@ -202,13 +251,84 @@ export function buildCity(map: MapData, seed: number): CityMeshes {
         s.box(cx, 0.25, cz, b.w * 0.9, 0.5, 0.1, 0x2a2a2a);
         break;
       case 'lamp': lamp(b); break;
+      case 'bus': { // a city bus on its side: windows face the sky, wheels face the street
+        const alongZ = b.h > b.w;
+        const L = alongZ ? b.h : b.w;
+        s.box(cx, b.height / 2, cz, b.w, b.height, b.h, 0xb8b2a2, 0xc8c2b2);
+        const stripe = (lo: number, hi: number, col: number) => (alongZ
+          ? s.facade('x+', b.x + b.w + 0.02, b.y + 0.4, b.y + b.h - 0.4, lo, hi, col)
+          : s.facade('z+', b.y + b.h + 0.02, b.x + 0.4, b.x + b.w - 0.4, lo, hi, col));
+        stripe(1.1, 1.5, 0x2a4a7a);
+        for (let k = 0; k < 8; k++) { // the windows, now on top
+          const t0 = -L / 2 + 0.8 + k * ((L - 1.6) / 8);
+          if (alongZ) s.floor(b.x + 0.5, cz + t0, b.x + b.w - 0.5, cz + t0 + 0.9, b.height + 0.01, k % 3 === 1 ? 0x06070a : 0x161b22);
+          else s.floor(cx + t0, b.y + 0.5, cx + t0 + 0.9, b.y + b.h - 0.5, b.height + 0.01, k % 3 === 1 ? 0x06070a : 0x161b22);
+        }
+        for (const t of [-L * 0.32, L * 0.3]) { // wheels sticking out of the underside
+          if (alongZ) s.box(b.x - 0.25, b.height * 0.5, cz + t, 0.5, 1.1, 1.1, 0x0b0b0c);
+          else s.box(cx + t, b.height * 0.5, b.y - 0.25, 1.1, 1.1, 0.5, 0x0b0b0c);
+        }
+        break;
+      }
+      case 'truck': { // an army truck: cab, and a canvas-covered bed
+        const alongZ = b.h > b.w;
+        const L = alongZ ? b.h : b.w, W = alongZ ? b.w : b.h;
+        const at = (t: number) => (alongZ ? [cx, cz + t] : [cx + t, cz]) as [number, number];
+        const dims = (l: number, w: number) => (alongZ ? [w, l] : [l, w]) as [number, number];
+        const [c1x, c1z] = at(L * 0.36), [d1w, d1d] = dims(L * 0.26, W);
+        s.box(c1x, 1.35, c1z, d1w, 2.1, d1d, 0x3f4628, 0x4b5330);
+        const [c2x, c2z] = at(-L * 0.13), [d2w, d2d] = dims(L * 0.72, W);
+        s.box(c2x, 1.1, c2z, d2w, 0.5, d2d, 0x2f3420);
+        s.box(c2x, 2.3, c2z, d2w * (alongZ ? 0.98 : 1), 1.9, d2d * (alongZ ? 1 : 0.98), 0x5a5a3a, 0x666646);
+        for (const t of [L * 0.34, -L * 0.05, -L * 0.36]) for (const side of [-1, 1]) {
+          const [wx, wz] = at(t);
+          if (alongZ) s.box(wx + side * W * 0.45, 0.5, wz, 0.4, 1, 1, 0x0b0b0c);
+          else s.box(wx, 0.5, wz + side * W * 0.45, 1, 1, 0.4, 0x0b0b0c);
+        }
+        break;
+      }
+      case 'sandbag': { // a low wall of sandbags, two courses
+        const alongX = b.w > b.h;
+        const len = alongX ? b.w : b.h;
+        for (let row = 0; row < 2; row++) {
+          for (let o = 0.35 + (row ? 0.35 : 0); o < len - 0.3; o += 0.7) {
+            const x = alongX ? b.x + o : cx, z = alongX ? cz : b.y + o;
+            s.box(x, 0.28 + row * 0.5, z, alongX ? 0.66 : b.w, 0.48, alongX ? b.h : 0.66, 0x7a6a4a, 0x8a7a5a);
+          }
+        }
+        break;
+      }
+      case 'ambulance': { // a box ambulance, doors open, light bar dead
+        const alongZ = b.h > b.w;
+        s.box(cx, 1.3, cz, b.w, 2.2, b.h, 0xd8d8d2, 0xe2e2dc);
+        if (alongZ) s.facade('x+', b.x + b.w + 0.02, b.y + 0.4, b.y + b.h - 0.4, 0.9, 1.2, 0xb02020);
+        else s.facade('z+', b.y + b.h + 0.02, b.x + 0.4, b.x + b.w - 0.4, 0.9, 1.2, 0xb02020);
+        g.box(cx, 2.5, cz, alongZ ? 1.2 : 0.4, 0.2, alongZ ? 0.4 : 1.2, chance(rng, 0.5) ? 0xff3030 : 0x3a1a1a);
+        for (const sx of [-1, 1]) for (const sz of [-1, 1]) s.box(cx + sx * b.w * 0.36, 0.35, cz + sz * b.h * 0.36, alongZ ? 0.3 : 0.7, 0.7, alongZ ? 0.7 : 0.3, 0x0b0b0c);
+        break;
+      }
+      case 'hospital': { // pale wards, rows of windows (a few still lit), a red cross over the doors
+        s.box(cx, b.height / 2, cz, b.w, b.height, b.h, 0xb8b8b0, 0x9a9a94);
+        for (let f = 0; f < 3; f++) for (let x = b.x + 1; x < b.x + b.w - 1.5; x += 2.2) {
+          const y0 = 1 + f * 3;
+          if (chance(rng, 0.12)) g.facade('z+', b.y + b.h + 0.03, x, x + 1.4, y0, y0 + 1.6, 0xd8f0ff);
+          else s.facade('z+', b.y + b.h + 0.02, x, x + 1.4, y0, y0 + 1.6, chance(rng, 0.2) ? 0x050506 : 0x1a2028);
+        }
+        s.box(cx, 3.3, b.y + b.h + 1.3, 6, 0.25, 2.6, 0x8a8a84); // entrance canopy
+        g.facade('z+', b.y + b.h + 0.04, cx - 0.35, cx + 0.35, 6.2, 8.2, 0xe02a2a); // red cross
+        g.facade('z+', b.y + b.h + 0.04, cx - 1, cx + 1, 6.85, 7.55, 0xe02a2a);
+        lights.push({ pos: new Vector3(cx, 7, b.y + b.h + 1.5), color: 0xff4040, kind: 'lamp', broken: true });
+        break;
+      }
     }
   }
 
   function tower(b: Building, satBoost: number, lit: number): void {
     const cx = b.x + b.w / 2, cz = b.y + b.h / 2;
     const s = S(cx, cz), g = G(cx, cz);
-    const base = new Color().setHSL(0.06 + b.tone * 0.5, 0.05 + satBoost * b.tone, 0.18 + b.tone * 0.12);
+    const burned = chance(rng, 0.2); // gutted by fire: sooty walls, black windows, nothing lit
+    if (burned) lit = 0;
+    const base = burned ? new Color(0x1c1a19) : new Color().setHSL(0.06 + b.tone * 0.5, 0.05 + satBoost * b.tone, 0.18 + b.tone * 0.12);
     s.box(cx, b.height / 2, cz, b.w, b.height, b.h, base.getHex(), base.clone().offsetHSL(0, -0.03, -0.06).getHex());
     const shutter = pick(rng, [0x5b2f22, 0x2f4f5b, 0x5b5b2f, 0x3d3d44]);
     const faces: Array<['x+' | 'x-' | 'z+' | 'z-', number, number, number]> = [
@@ -226,7 +346,8 @@ export function buildCity(map: MapData, seed: number): CityMeshes {
         for (let c = 0; c < cols; c++) {
           const w0 = a0 + c * step + step * 0.25, w1 = w0 + step * 0.5;
           if (chance(rng, lit * 0.6)) g.facade(face, plane + (face[1] === '+' ? 0.01 : -0.01), w0, w1, y0, y0 + 1.5, pick(rng, [0xffd27a, 0xffc36a, 0xc9d9ff]));
-          else s.facade(face, plane, w0, w1, y0, y0 + 1.5, chance(rng, 0.15) ? 0x070809 : 0x14171c);
+          else s.facade(face, plane, w0, w1, y0, y0 + 1.5, burned || chance(rng, 0.15) ? 0x070809 : 0x14171c);
+          if (burned && chance(rng, 0.35)) s.facade(face, plane + (face[1] === '+' ? 0.005 : -0.005), w0 - 0.2, w1 + 0.2, y0 + 1.5, y0 + 2.6, 0x0a0908); // soot above the window
         }
       }
     }
@@ -239,16 +360,28 @@ export function buildCity(map: MapData, seed: number): CityMeshes {
   function house(b: Building): void {
     const cx = b.x + b.w / 2, cz = b.y + b.h / 2;
     const s = S(cx, cz), g = G(cx, cz);
-    const wall = new Color().setHSL(0.05 + b.tone * 0.12, 0.18, 0.32 + b.tone * 0.14);
+    const r = next(rng);
+    const burned = r < 0.12, boarded = !burned && r < 0.4;
+    const wall = burned ? new Color(0x221e1b) : new Color().setHSL(0.05 + b.tone * 0.12, 0.18, 0.32 + b.tone * 0.14);
     s.box(cx, b.height / 2, cz, b.w, b.height, b.h, wall.getHex());
     const roof = pick(rng, [0x3a2420, 0x2a2d33, 0x3d3226, 0x24302a]);
-    s.gable(cx, cz, b.w + 0.6, b.h + 0.6, b.height, 2.2, b.w > b.h, roof, wall.clone().offsetHSL(0, 0, -0.05).getHex());
-    // a door and two windows on the street side, maybe one lit
-    s.facade('z+', b.y + b.h + 0.02, cx - 0.5, cx + 0.5, 0.15, 2.1, 0x2a1d14);
-    for (const ox of [-b.w * 0.3, b.w * 0.3]) {
-      if (chance(rng, 0.2)) g.facade('z+', b.y + b.h + 0.03, cx + ox - 0.55, cx + ox + 0.55, 1.2, 2.2, 0xffcf7a);
-      else s.facade('z+', b.y + b.h + 0.02, cx + ox - 0.55, cx + ox + 0.55, 1.2, 2.2, 0x14171c);
+    if (burned) {
+      // the roof fell in: charred rafters over an open top
+      for (let k = 0; k < 4; k++) s.box(cx - b.w / 2 + (k + 0.5) * (b.w / 4), b.height + 0.4, cz, 0.2, 0.2, b.h * range(rng, 0.4, 1), 0x0d0b0a);
+      s.floor(b.x + 0.2, b.y + 0.2, b.x + b.w - 0.2, b.y + b.h - 0.2, b.height + 0.01, 0x0a0908);
+    } else {
+      s.gable(cx, cz, b.w + 0.6, b.h + 0.6, b.height, 2.2, b.w > b.h, roof, wall.clone().offsetHSL(0, 0, -0.05).getHex());
     }
+    // a door and two windows on the street side: lit, dark, burned out or boarded over
+    s.facade('z+', b.y + b.h + 0.02, cx - 0.5, cx + 0.5, 0.15, 2.1, burned ? 0x050505 : 0x2a1d14);
+    const plank = 0x6a5236;
+    for (const ox of [-b.w * 0.3, b.w * 0.3]) {
+      if (!burned && !boarded && chance(rng, 0.15)) g.facade('z+', b.y + b.h + 0.03, cx + ox - 0.55, cx + ox + 0.55, 1.2, 2.2, 0xffcf7a);
+      else s.facade('z+', b.y + b.h + 0.02, cx + ox - 0.55, cx + ox + 0.55, 1.2, 2.2, burned ? 0x050505 : 0x14171c);
+      if (boarded) for (const y of [1.4, 1.75, 2.05]) s.box(cx + ox, y, b.y + b.h + 0.06, 1.3, 0.16, 0.05, plank);
+      if (burned) s.facade('z+', b.y + b.h + 0.025, cx + ox - 0.8, cx + ox + 0.8, 2.2, 3.2, 0x0a0908); // soot
+    }
+    if (boarded) { s.box(cx, 1.0, b.y + b.h + 0.07, 1.2, 0.16, 0.05, plank); s.box(cx, 1.5, b.y + b.h + 0.07, 1.2, 0.16, 0.05, plank); }
     s.facade('x+', b.x + b.w + 0.02, cz - 0.6, cz + 0.6, 1.2, 2.2, 0x14171c);
   }
 
@@ -283,8 +416,8 @@ export function buildCity(map: MapData, seed: number): CityMeshes {
     s.box(cx, b.height / 2, cz, 0.22, b.height, 0.22, 0x3a3d42);
     const ax = cx + dx * 1.2, az = cz + dz * 1.2;
     s.box((cx + ax) / 2, b.height - 0.1, (cz + az) / 2, Math.abs(ax - cx) + 0.15, 0.12, Math.abs(az - cz) + 0.15, 0x3a3d42);
-    const broken = next(rng) < 0.3;
-    const dead = next(rng) < 0.2;
+    const broken = next(rng) < 0.4; // flickering
+    const dead = next(rng) < 0.35; // out
     g.box(ax, b.height - 0.3, az, 0.45, 0.2, 0.45, dead ? 0x2a2a2a : 0xffe2a8);
     if (!dead) lights.push({ pos: new Vector3(ax, b.height - 0.5, az), color: 0xffcf8a, kind: 'lamp', broken });
   }

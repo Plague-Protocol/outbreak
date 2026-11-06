@@ -98,6 +98,9 @@
   #btn-reload { right: 34px; bottom: calc(env(safe-area-inset-bottom, 0px) + 136px); width: 50px; height: 50px; font-size: 18px; }
   #btn-swap { right: 96px; bottom: calc(env(safe-area-inset-bottom, 0px) + 128px); width: 64px; height: 64px; font-size: 10px; flex-direction: column; }
   #btn-swap b { font-size: 13px; }
+  #btn-throw { right: 206px; bottom: calc(env(safe-area-inset-bottom, 0px) + 46px); width: 56px; height: 56px; font-size: 9px;
+    flex-direction: column; border-color: rgba(120,200,140,.6); }
+  #btn-throw b { font-size: 14px; }
   @media (hover: hover) and (pointer: fine) { .pad { opacity: .75; } }
   /* the weapon store: a full page */
   #store { z-index: 9; background: radial-gradient(ellipse at top, #2a1714 0%, #0d0b0b 70%); justify-content: flex-start;
@@ -167,6 +170,7 @@
 <div id="btn-fire" class="pad">FIRE</div>
 <div id="btn-use" class="pad">USE</div>
 <div id="btn-reload" class="pad">&#8635;</div>
+<div id="btn-throw" class="pad"><b id="bottles">2</b>THROW</div>
 <div id="btn-swap" class="pad"><b id="ammo">12/24</b><span id="weapon-name">Pistol</span></div>
 <div id="store" class="screen">
   <header><div><small>Weapon store</small><h1 id="store-name">HALDEN ARMS</h1></div><div class="cash" id="store-cash"></div></header>
