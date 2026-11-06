@@ -1,31 +1,88 @@
-import { createRng, chance, range } from './rng';
-import type { Building, MapData, Vec2 } from './types';
+import { createRng, chance, int, pick, range, type Rng } from './rng';
+import type { Building, MapData, ObstacleKind, Vec2 } from './types';
 
+// World scale: a character is 2.8 units tall (about 1.75 m), so 1 unit is about 0.63 m.
 export const BLOCKS = 5;
-export const PITCH = 12; // block + street
-export const STREET = 4;
-export const MAP_SIZE = BLOCKS * PITCH + STREET; // 64
-const BLOCK = PITCH - STREET; // 8
-const NAV_CLEARANCE = 1.0; // a nav cell is blocked if its center is this close to a building
+export const STREET = 6; // about 3.8 m
+export const PITCH = 18; // block + street
+export const MAP_SIZE = BLOCKS * PITCH + STREET; // 96
+const BLOCK = PITCH - STREET; // 12
+const NAV_CLEARANCE = 1.0; // a nav cell is blocked if its center is this close to an obstacle
 export const UNREACHABLE = 32767;
 
+/** Sizes (w x h footprint, height) of street props, in world units. */
+const PROP: Record<Exclude<ObstacleKind, 'building'>, [number, number, number]> = {
+  car: [2.9, 6.4, 2.3],
+  wreck: [2.9, 6.4, 1.9],
+  dumpster: [2.0, 3.4, 2.2],
+  barrel: [0.9, 0.9, 1.4],
+  barricade: [4.0, 0.6, 1.6],
+  lamp: [0.4, 0.4, 7.5],
+};
+
+function prop(kind: Exclude<ObstacleKind, 'building'>, x: number, y: number, rotate: boolean, rng: Rng): Building {
+  const [a, b, height] = PROP[kind];
+  const [w, h] = rotate ? [b, a] : [a, b];
+  return { kind, x, y, w, h, height, tone: range(rng, 0, 1) };
+}
+
+function overlaps(a: Building, b: Building, pad: number): boolean {
+  return a.x < b.x + b.w + pad && b.x < a.x + a.w + pad && a.y < b.y + b.h + pad && b.y < a.y + a.h + pad;
+}
+
+/**
+ * City blocks on a street grid. Obstacles (buildings and props) only ever sit inside blocks, so
+ * the streets between them are always open and the whole street grid stays connected.
+ */
 export function generateMap(seed: number): MapData {
   const rng = createRng(seed);
-  const buildings: Building[] = [];
+  const obstacles: Building[] = [];
   for (let i = 0; i < BLOCKS; i++) {
     for (let j = 0; j < BLOCKS; j++) {
-      if (!chance(rng, 0.82)) continue; // open lot
-      const w = range(rng, 5, BLOCK);
-      const h = range(rng, 5, BLOCK);
       const bx = STREET + i * PITCH;
       const by = STREET + j * PITCH;
-      buildings.push({
-        x: bx + range(rng, 0, BLOCK - w),
-        y: by + range(rng, 0, BLOCK - h),
-        w, h,
-        height: range(rng, 1.6, 3.4),
-        tone: range(rng, 0, 1),
-      });
+      const inBlock: Building[] = [];
+      const tryAdd = (o: Building) => {
+        if (o.x < bx || o.y < by || o.x + o.w > bx + BLOCK || o.y + o.h > by + BLOCK) return;
+        if (inBlock.some((q) => overlaps(o, q, 1.6))) return; // keep a walkable gap
+        inBlock.push(o);
+      };
+
+      // a lamp post on one corner of most blocks
+      if (chance(rng, 0.7)) {
+        const cx = chance(rng, 0.5) ? bx + 0.3 : bx + BLOCK - 0.7;
+        const cy = chance(rng, 0.5) ? by + 0.3 : by + BLOCK - 0.7;
+        tryAdd(prop('lamp', cx, cy, false, rng));
+      }
+
+      if (chance(rng, 0.8)) {
+        const w = range(rng, 7, 10);
+        const h = range(rng, 7, 10);
+        tryAdd({
+          kind: 'building',
+          x: bx + range(rng, 0.8, BLOCK - w - 0.8),
+          y: by + range(rng, 0.8, BLOCK - h - 0.8),
+          w, h,
+          height: range(rng, 5, 12),
+          tone: range(rng, 0, 1),
+        });
+        // clutter in the margins
+        const n = int(rng, 0, 2);
+        for (let k = 0; k < n; k++) {
+          const kind = pick(rng, ['barrel', 'dumpster', 'barricade', 'barrel'] as const);
+          tryAdd(prop(kind, bx + range(rng, 0, BLOCK - 4), by + range(rng, 0, BLOCK - 4), chance(rng, 0.5), rng));
+        }
+      } else {
+        // open lot: a car park of abandoned and burnt-out cars, a fire barrel
+        const n = int(rng, 1, 3);
+        for (let k = 0; k < n; k++) {
+          const kind = chance(rng, 0.45) ? 'wreck' : 'car';
+          const rot = chance(rng, 0.5);
+          tryAdd(prop(kind, bx + range(rng, 0.5, BLOCK - (rot ? 6.9 : 3.4)), by + range(rng, 0.5, BLOCK - (rot ? 3.4 : 6.9)), rot, rng));
+        }
+        tryAdd(prop('barrel', bx + range(rng, 1, BLOCK - 2), by + range(rng, 1, BLOCK - 2), false, rng));
+      }
+      obstacles.push(...inBlock);
     }
   }
 
@@ -49,14 +106,14 @@ export function generateMap(seed: number): MapData {
   for (let cy = 0; cy < cols; cy++) {
     for (let cx = 0; cx < cols; cx++) {
       const px = cx + 0.5, py = cy + 0.5;
-      for (const b of buildings) {
+      for (const b of obstacles) {
         const nx = Math.max(b.x, Math.min(px, b.x + b.w));
         const ny = Math.max(b.y, Math.min(py, b.y + b.h));
         if (Math.hypot(px - nx, py - ny) < NAV_CLEARANCE) { blocked[cy * cols + cx] = 1; break; }
       }
     }
   }
-  return { size: MAP_SIZE, cols, buildings, blocked, points };
+  return { size: MAP_SIZE, cols, buildings: obstacles, blocked, points };
 }
 
 export function cellOf(map: MapData, p: Vec2): number {

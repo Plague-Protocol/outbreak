@@ -2,7 +2,7 @@ import { readdirSync, readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
 import { createGame, currentTask, requiredDone, step, type GameState } from '../src/core/state';
 import { cellOf } from '../src/core/map';
-import { TASK_HOLD_SECONDS, ZOMBIES_PER_TIER, ZOMBIES_START } from '../src/core/config';
+import { ATTACK_WINDUP, SPAWNS_BY_TIER, TASK_HOLD_SECONDS } from '../src/core/config';
 import type { Input, Task } from '../src/core/types';
 
 const IDLE: Input = { dx: 0, dy: 0 };
@@ -111,12 +111,34 @@ describe('win and lose', () => {
     expect(g.phase).toBe('won');
   });
 
-  it('being caught by a zombie loses', () => {
+  it('a zombie that reaches you lunges, and the lunge lands if you stay', () => {
     const g = createGame(3);
-    g.zombies[0]!.pos = { ...g.player.pos };
+    const z = g.zombies[0]!;
+    z.pos = { x: g.player.pos.x + 1, y: g.player.pos.y };
     step(g, IDLE, DT);
+    expect(z.action).toBe('attack');
+    expect(g.phase).toBe('playing'); // the wind-up is the window to dodge
+    for (let i = 0; i < Math.ceil(ATTACK_WINDUP.walker / DT) + 2 && g.phase === 'playing'; i++) step(g, IDLE, DT);
     expect(g.phase).toBe('lost');
     expect(g.lossReason).toBe('caught');
+    expect(g.killerId).toBe(z.id);
+    expect(z.action).toBe('feed');
+  });
+
+  it('running away during the wind-up dodges the lunge', () => {
+    const g = createGame(3);
+    g.zombies = [g.zombies[0]!];
+    const z = g.zombies[0]!;
+    // put the zombie beside the player in open street, then sprint directly away from it
+    const p = g.map.points.find((q) => g.map.points.filter((r) => Math.hypot(r.x - q.x, r.y - q.y) < 1).length === 1)!;
+    g.player.pos = { ...p };
+    z.pos = { x: p.x - 1.2, y: p.y };
+    step(g, IDLE, DT);
+    expect(z.action).toBe('attack');
+    g.player.vel = { x: 5.5, y: 0 };
+    for (let i = 0; i < Math.ceil(ATTACK_WINDUP.walker / DT) + 2; i++) step(g, { dx: 1, dy: 0 }, DT);
+    expect(g.phase).toBe('playing');
+    expect(z.action).toBe('chase');
   });
 
   it('a task whose dependency is not done cannot be completed', () => {
@@ -152,9 +174,10 @@ describe('win and lose', () => {
 });
 
 describe('zombies and escalation', () => {
-  it('starts with a few zombies and none within the spawn safety distance', () => {
+  it('starts with a few walkers and none near the player', () => {
     const g = createGame(9);
-    expect(g.zombies.length).toBe(ZOMBIES_START);
+    expect(g.zombies.length).toBe(SPAWNS_BY_TIER[0].walker + SPAWNS_BY_TIER[0].runner);
+    expect(g.zombies.every((z) => z.kind === 'walker' && z.action === 'idle')).toBe(true);
     for (const z of g.zombies) expect(Math.hypot(z.pos.x - g.player.pos.x, z.pos.y - g.player.pos.y)).toBeGreaterThanOrEqual(18);
   });
 
@@ -162,12 +185,15 @@ describe('zombies and escalation', () => {
     const g = createGame(9);
     g.remaining = g.timeLimit * 0.6;
     step(g, IDLE, 0.001);
+    const count = (t: number) => SPAWNS_BY_TIER.slice(0, t + 1).reduce((n, w) => n + w.walker + w.runner, 0);
     expect(g.tier).toBe(1);
-    expect(g.zombies.length).toBe(ZOMBIES_START + ZOMBIES_PER_TIER);
+    expect(g.zombies.length).toBe(count(1));
+    expect(g.zombies.some((z) => z.kind === 'runner')).toBe(true);
+    expect(g.zombies.filter((z) => z.action === 'rise').length).toBe(count(1) - count(0)); // new ones climb up first
     g.remaining = g.timeLimit * 0.3;
     step(g, IDLE, 0.001);
     expect(g.tier).toBe(2);
-    expect(g.zombies.length).toBe(ZOMBIES_START + 2 * ZOMBIES_PER_TIER);
+    expect(g.zombies.length).toBe(Math.min(14, count(2)));
     expect(g.events.filter((e) => e.type === 'tier-up').length).toBeLessThanOrEqual(1);
   });
 
@@ -177,13 +203,14 @@ describe('zombies and escalation', () => {
     const z = g.zombies[0]!;
     const near = g.map.points.find((p) => {
       const d = Math.hypot(p.x - g.player.pos.x, p.y - g.player.pos.y);
-      return d > 9 && d < 13;
+      return d > 7 && d < 9.5;
     })!;
     z.pos = { ...near }; // inside sight range
     const pathDist = () => g.flow[cellOf(g.map, z.pos)] as number; // BFS steps to the player
     const d0 = pathDist();
-    for (let i = 0; i < 60 && g.phase === 'playing'; i++) step(g, IDLE, DT);
+    for (let i = 0; i < 120 && g.phase === 'playing'; i++) step(g, IDLE, DT);
     expect(g.phase === 'lost' || pathDist() < d0 - 3).toBe(true);
+    expect(['chase', 'attack', 'feed']).toContain(z.action);
   });
 
   it('player and zombies never end up inside buildings', () => {
@@ -194,6 +221,32 @@ describe('zombies and escalation', () => {
       g.map.buildings.some((b) => p.x > b.x + 0.01 && p.x < b.x + b.w - 0.01 && p.y > b.y + 0.01 && p.y < b.y + b.h - 0.01);
     expect(inside(g.player.pos)).toBe(false);
     for (const z of g.zombies) expect(inside(z.pos)).toBe(false);
+  });
+});
+
+describe('player movement', () => {
+  it('accelerates and decelerates instead of starting and stopping instantly', () => {
+    const g = calmGame(4);
+    step(g, { dx: 1, dy: 0 }, DT);
+    const first = Math.hypot(g.player.vel.x, g.player.vel.y);
+    expect(first).toBeGreaterThan(0);
+    expect(first).toBeLessThan(1);
+    for (let i = 0; i < 30; i++) step(g, { dx: 1, dy: 0 }, DT);
+    expect(Math.hypot(g.player.vel.x, g.player.vel.y)).toBeGreaterThan(5);
+    step(g, IDLE, DT);
+    expect(Math.hypot(g.player.vel.x, g.player.vel.y)).toBeGreaterThan(4); // still carrying momentum
+    for (let i = 0; i < 30; i++) step(g, IDLE, DT);
+    expect(Math.hypot(g.player.vel.x, g.player.vel.y)).toBe(0);
+  });
+
+  it('a light push walks and a full push runs', () => {
+    const run = (mag: number) => {
+      const g = calmGame(4);
+      for (let i = 0; i < 40; i++) step(g, { dx: mag, dy: 0 }, DT);
+      return Math.hypot(g.player.vel.x, g.player.vel.y);
+    };
+    expect(run(0.25)).toBeLessThan(1.6);
+    expect(run(1)).toBeGreaterThan(5);
   });
 });
 

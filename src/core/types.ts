@@ -3,7 +3,11 @@ export interface Vec2 {
   y: number;
 }
 
+export type ObstacleKind = 'building' | 'car' | 'wreck' | 'dumpster' | 'barrel' | 'barricade' | 'lamp';
+
+/** Any solid axis-aligned box: buildings and street props. All of them block movement and pathing. */
 export interface Building {
+  kind: ObstacleKind;
   x: number; // min corner
   y: number;
   w: number;
@@ -38,10 +42,19 @@ export interface Task {
   done: boolean;
 }
 
+export type ZombieKind = 'walker' | 'runner';
+/** What a zombie is doing; the renderer picks its animation from this, not from guessing. */
+export type ZombieAction = 'rise' | 'idle' | 'wander' | 'chase' | 'attack' | 'feed';
+
 export interface Zombie {
   id: number;
+  kind: ZombieKind;
   pos: Vec2;
-  heading: number; // radians, visual
+  heading: number; // radians
+  speed: number; // current ground speed, units/s (drives animation playback rate)
+  action: ZombieAction;
+  actionT: number; // seconds left in a timed action (rise, attack wind-up)
+  cooldown: number; // seconds before it can attack again
   wanderT: number;
   wanderDir: Vec2;
 }
@@ -55,6 +68,8 @@ export type GameEvent =
   | { type: 'safehouse-locked' }
   | { type: 'tier-up'; tier: number }
   | { type: 'time-penalty'; seconds: number }
+  | { type: 'zombie-alert'; id: number }
+  | { type: 'zombie-attack'; id: number }
   | { type: 'won' }
   | { type: 'lost'; reason: LossReason };
 

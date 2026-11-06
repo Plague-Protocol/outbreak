@@ -1,14 +1,15 @@
 // Pure game state. No DOM, no three.js, no Date/Math.random: time comes from dt, randomness from state.rng.
 import {
-  CALM_FACTOR, PLAYER_RADIUS, PLAYER_SPEED, SAFEHOUSE_RADIUS, SPEED_BOOST, TASK_HOLD_SECONDS, TASK_RADIUS,
-  TIER_THRESHOLDS, ZOMBIES_PER_TIER, ZOMBIES_START, ZOMBIE_CAP, ZOMBIE_RADIUS, ZOMBIE_SIGHT_BY_TIER,
-  ZOMBIE_SPAWN_MIN_DIST, ZOMBIE_SPEED_BY_TIER,
+  ATTACK_COOLDOWN, ATTACK_RANGE, ATTACK_REACH, ATTACK_WINDUP, CALM_FACTOR, PLAYER_ACCEL, PLAYER_RADIUS, PLAYER_SPEED,
+  RISE_SECONDS, RUNNER_SIGHT, RUNNER_SPEED, SAFEHOUSE_RADIUS, SPAWNS_BY_TIER, SPEED_BOOST, TASK_HOLD_SECONDS,
+  TASK_RADIUS, TIER_THRESHOLDS, WALKER_SIGHT_BY_TIER, WALKER_SPEED_BY_TIER, ZOMBIE_CAP, ZOMBIE_RADIUS,
+  ZOMBIE_SPAWN_MIN_DIST,
 } from './config';
 import { lineClear, resolve } from './collision';
 import { generateLevel, type Level } from './level';
 import { cellOf, distanceField, UNREACHABLE } from './map';
 import { createRng, next, pick, range, type Rng } from './rng';
-import type { GameEvent, Input, LossReason, MapData, Phase, Task, TaskId, Vec2, Zombie } from './types';
+import type { GameEvent, Input, LossReason, MapData, Phase, Task, TaskId, Vec2, Zombie, ZombieKind } from './types';
 
 export interface GameState {
   seed: number;
@@ -20,7 +21,9 @@ export interface GameState {
   timeLimit: number;
   remaining: number;
   tier: number;
-  player: { pos: Vec2; heading: number };
+  player: { pos: Vec2; vel: Vec2; heading: number };
+  /** Zombie that caught the player, if any (the renderer stages the ending around it). */
+  killerId: number | null;
   zombies: Zombie[];
   tasks: Task[];
   safehouse: Vec2;
@@ -48,7 +51,8 @@ export function createGame(seed: number, level: Level = generateLevel(seed)): Ga
     timeLimit: level.timeLimit,
     remaining: level.timeLimit,
     tier: 0,
-    player: { pos: { ...level.spawn }, heading: 0 },
+    player: { pos: { ...level.spawn }, vel: { x: 0, y: 0 }, heading: 0 },
+    killerId: null,
     zombies: [],
     tasks: level.tasks.map((t) => ({ ...t, pos: { ...t.pos }, requires: t.requires.slice() })),
     safehouse: { ...level.safehouse },
@@ -63,7 +67,7 @@ export function createGame(seed: number, level: Level = generateLevel(seed)): Ga
     nextZombieId: 1,
     lockedNotice: null,
   };
-  for (let i = 0; i < ZOMBIES_START; i++) spawnZombie(state);
+  spawnWave(state, 0, false);
   refreshFlow(state);
   return state;
 }
@@ -88,17 +92,31 @@ function refreshFlow(s: GameState): void {
   distanceField(s.map, s.player.pos, s.flow);
 }
 
-function spawnZombie(s: GameState): void {
+function spawnWave(s: GameState, tier: number, rising: boolean): void {
+  const wave = SPAWNS_BY_TIER[tier]!;
+  for (let i = 0; i < wave.runner; i++) spawnZombie(s, 'runner', rising);
+  for (let i = 0; i < wave.walker; i++) spawnZombie(s, 'walker', rising);
+}
+
+function spawnZombie(s: GameState, kind: ZombieKind, rising: boolean): void {
   if (s.zombies.length >= ZOMBIE_CAP) return;
   const far = s.map.points.filter(
     (p) => Math.hypot(p.x - s.player.pos.x, p.y - s.player.pos.y) >= ZOMBIE_SPAWN_MIN_DIST,
   );
   const p = pick(s.rng, far.length > 0 ? far : s.map.points);
+  // scatter around the street point so a wave does not stand in one spot
+  const pos = { x: p.x + range(s.rng, -1.5, 1.5), y: p.y + range(s.rng, -1.5, 1.5) };
+  resolve(s.map, pos, ZOMBIE_RADIUS);
   s.zombies.push({
     id: s.nextZombieId++,
-    pos: { x: p.x, y: p.y },
-    heading: 0,
-    wanderT: 0,
+    kind,
+    pos,
+    heading: next(s.rng) * Math.PI * 2,
+    speed: 0,
+    action: rising ? 'rise' : 'idle',
+    actionT: rising ? RISE_SECONDS : 0,
+    cooldown: 0,
+    wanderT: range(s.rng, 0, 2),
     wanderDir: { x: 0, y: 0 },
   });
 }
@@ -131,7 +149,7 @@ export function step(s: GameState, input: Input, dt: number): GameState {
   while (s.tier < tier) {
     s.tier++;
     s.events.push({ type: 'tier-up', tier: s.tier });
-    for (let i = 0; i < ZOMBIES_PER_TIER; i++) spawnZombie(s);
+    spawnWave(s, s.tier, true);
   }
 
   movePlayer(s, input, dt);
@@ -148,13 +166,28 @@ function movePlayer(s: GameState, input: Input, dt: number): void {
   let dx = input.dx, dy = input.dy;
   const len = Math.hypot(dx, dy);
   if (len > 1) { dx /= len; dy /= len; }
-  if (len > 0.01) {
-    const v = PLAYER_SPEED * s.speedMul;
-    s.player.pos.x += dx * v * dt;
-    s.player.pos.y += dy * v * dt;
-    s.player.heading = Math.atan2(dy, dx);
-    resolve(s.map, s.player.pos, PLAYER_RADIUS);
-  }
+  const top = PLAYER_SPEED * s.speedMul;
+  const tx = dx * top, ty = dy * top; // analog: a light push walks, a full push runs
+  const v = s.player.vel;
+  const ex = tx - v.x, ey = ty - v.y;
+  const e = Math.hypot(ex, ey);
+  const stepV = PLAYER_ACCEL * dt;
+  if (e <= stepV) { v.x = tx; v.y = ty; } else { v.x += (ex / e) * stepV; v.y += (ey / e) * stepV; }
+  const sp = Math.hypot(v.x, v.y);
+  if (sp < 1e-4) { v.x = 0; v.y = 0; return; }
+  const before = { x: s.player.pos.x, y: s.player.pos.y };
+  s.player.pos.x += v.x * dt;
+  s.player.pos.y += v.y * dt;
+  resolve(s.map, s.player.pos, PLAYER_RADIUS);
+  // sliding along a wall: keep only the velocity that actually happened
+  if (dt > 0) { v.x = (s.player.pos.x - before.x) / dt; v.y = (s.player.pos.y - before.y) / dt; }
+  if (len > 0.05) s.player.heading = Math.atan2(dy, dx);
+  else if (sp > 0.2) s.player.heading = Math.atan2(v.y, v.x);
+}
+
+/** Current ground speed of the player, units/s. */
+export function playerSpeed(s: GameState): number {
+  return Math.hypot(s.player.vel.x, s.player.vel.y);
 }
 
 function updateTasks(s: GameState, dt: number): void {
@@ -214,17 +247,54 @@ function updateSafehouse(s: GameState): void {
 }
 
 function updateZombies(s: GameState, dt: number): void {
-  const speed = ZOMBIE_SPEED_BY_TIER[s.tier]! * s.zombieMul;
-  const sight = ZOMBIE_SIGHT_BY_TIER[s.tier]!;
   const p = s.player.pos;
   const cols = s.map.cols;
-  const catchDist = PLAYER_RADIUS + ZOMBIE_RADIUS;
 
   for (const z of s.zombies) {
+    z.cooldown = Math.max(0, z.cooldown - dt);
     const dx = p.x - z.pos.x, dy = p.y - z.pos.y;
     const d = Math.hypot(dx, dy);
-    let vx = 0, vy = 0;
+
+    if (z.action === 'rise') {
+      z.speed = 0;
+      z.actionT -= dt;
+      if (z.actionT <= 0) z.action = 'idle';
+      continue;
+    }
+
+    if (z.action === 'attack') {
+      z.speed = 0;
+      if (d > 1e-6) z.heading = Math.atan2(dy, dx); // track the target during the wind-up
+      z.actionT -= dt;
+      if (z.actionT > 0) continue;
+      if (d < ATTACK_REACH) {
+        z.action = 'feed';
+        s.killerId = z.id;
+        lose(s, 'caught');
+        return;
+      }
+      z.action = 'chase';
+      z.cooldown = ATTACK_COOLDOWN;
+    }
+
+    const sight = z.kind === 'runner' ? RUNNER_SIGHT : WALKER_SIGHT_BY_TIER[s.tier]!;
+    const chaseSpeed = (z.kind === 'runner' ? RUNNER_SPEED : WALKER_SPEED_BY_TIER[s.tier]!) * s.zombieMul;
+
+    if (d < ATTACK_RANGE && z.cooldown <= 0) {
+      z.action = 'attack';
+      z.actionT = ATTACK_WINDUP[z.kind];
+      z.speed = 0;
+      s.events.push({ type: 'zombie-attack', id: z.id });
+      continue;
+    }
+
+    let vx = 0, vy = 0, v = 0;
     if (d < sight) {
+      if (z.action !== 'chase') {
+        z.action = 'chase';
+        s.events.push({ type: 'zombie-alert', id: z.id });
+      }
+      v = chaseSpeed;
       if (d < 3 || lineClear(s.map, z.pos, p, ZOMBIE_RADIUS)) {
         if (d > 1e-6) { vx = dx / d; vy = dy / d; }
       } else {
@@ -233,8 +303,8 @@ function updateZombies(s: GameState, dt: number): void {
         let best = s.flow[c] as number, bc = -1;
         for (const n of [c - 1, c + 1, c - cols, c + cols]) {
           if (n < 0 || n >= s.flow.length) continue;
-          const v = s.flow[n] as number;
-          if (v < best) { best = v; bc = n; }
+          const fv = s.flow[n] as number;
+          if (fv < best) { best = fv; bc = n; }
         }
         if (bc >= 0 && best !== UNREACHABLE) {
           const tx = (bc % cols) + 0.5 - z.pos.x;
@@ -244,27 +314,48 @@ function updateZombies(s: GameState, dt: number): void {
         }
       }
     } else {
-      // idle shamble
+      // lost interest: stand, or shuffle about
       z.wanderT -= dt;
       if (z.wanderT <= 0) {
-        z.wanderT = range(s.rng, 1, 3);
-        if (next(s.rng) < 0.4) z.wanderDir = { x: 0, y: 0 };
+        z.wanderT = range(s.rng, 2, 5);
+        if (next(s.rng) < 0.45) z.wanderDir = { x: 0, y: 0 };
         else {
           const a = next(s.rng) * Math.PI * 2;
           z.wanderDir = { x: Math.cos(a), y: Math.sin(a) };
         }
       }
       vx = z.wanderDir.x; vy = z.wanderDir.y;
+      const moving = vx !== 0 || vy !== 0;
+      z.action = moving ? 'wander' : 'idle';
+      v = moving ? WALKER_SPEED_BY_TIER[0] * 0.7 : 0;
     }
-    const v = d < sight ? speed : speed * 0.4;
+
+    const before = { x: z.pos.x, y: z.pos.y };
     z.pos.x += vx * v * dt;
     z.pos.y += vy * v * dt;
     resolve(s.map, z.pos, ZOMBIE_RADIUS);
+    z.speed = dt > 0 ? Math.hypot(z.pos.x - before.x, z.pos.y - before.y) / dt : 0;
     if (vx !== 0 || vy !== 0) z.heading = Math.atan2(vy, vx);
+    // a wanderer that hits a wall turns around next time
+    if (z.action === 'wander' && z.speed < v * 0.3) z.wanderT = 0;
+  }
+  separate(s);
+}
 
-    if (Math.hypot(p.x - z.pos.x, p.y - z.pos.y) < catchDist) {
-      lose(s, 'caught');
-      return;
+/** Push overlapping zombies apart so a crowd spreads out instead of stacking. */
+function separate(s: GameState): void {
+  const zs = s.zombies;
+  const min = ZOMBIE_RADIUS * 2;
+  for (let i = 0; i < zs.length; i++) {
+    for (let j = i + 1; j < zs.length; j++) {
+      const a = zs[i]!.pos, b = zs[j]!.pos;
+      const dx = b.x - a.x, dy = b.y - a.y;
+      const d = Math.hypot(dx, dy);
+      if (d >= min || d < 1e-6) continue;
+      const push = (min - d) / 2;
+      a.x -= (dx / d) * push; a.y -= (dy / d) * push;
+      b.x += (dx / d) * push; b.y += (dy / d) * push;
     }
   }
+  for (const z of zs) resolve(s.map, z.pos, ZOMBIE_RADIUS);
 }
