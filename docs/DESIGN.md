@@ -9,9 +9,9 @@ Nobody is infected. Players are survivors in a zombie-overrun city. They have to
 safe zone before they are caught, by zombies or by other players. Anyone who reaches a
 safe zone advances to the next stage; anyone who doesn't is eliminated.
 
-Setting: invented Resident Evil-style districts with a few camps each, not real cities.
-(Do not use the Resident Evil name or imagery — Capcom trademark.) Locales can carry
-local flavour (Lagos first) and sell local ad inventory.
+Setting: a zombie-virus outbreak in invented cities, universal on purpose so it reads anywhere
+(decided 2026-11-06; earlier drafts were Lagos-first). Resident Evil-style districts, not real
+cities. (Do not use the Resident Evil name or imagery — Capcom trademark.) City 1 is Port Halden.
 
 ## Design principle: fun first, money second
 
@@ -124,6 +124,11 @@ Real-money earnings wait until there is a funded source for them.
   large for MiniPay.
 - **Story:** told like Eko Lockdown (title card, cutscene, speaker lines, radio briefs, endings),
   wrapped around the seeded task chain. Text in `src/core/story.ts`.
+- **City 1 (Port Halden):** 8x8 blocks with districts (downtown, residential, park, docklands on a
+  harbour, outskirts with a gas station), drivable vehicles, supply crates, weapon pickups and a gun
+  store (in-game money only), a minimap and full map rotated to match the camera.
+- **Combat:** pistol, shotgun, assault rifle with aim assist (touch first), reloads, and gunfire
+  noise that draws zombies. Player health; lunges can be dodged or interrupted.
 - **Budget:** small texture budget; test on a mid-range Android phone inside MiniPay.
 - **Randomization:** deterministic seed → task/item placement. Same function runs in the
   browser now and on the server in phase 2, so phase 2 doesn't rewrite it.

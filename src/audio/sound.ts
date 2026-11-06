@@ -2,8 +2,8 @@
 // Wind and a low drone under everything, distant sirens, zombie groans placed in stereo, a scream
 // when one lunges, footsteps paced to the player's speed, a heartbeat when time or distance is short,
 // and stingers. Starts on the first tap (browsers require a user gesture).
-import { playerSpeed, type GameState } from '../core/state';
-import type { GameEvent } from '../core/types';
+import { playerSpeed, playerVehicle, type GameState } from '../core/state';
+import type { GameEvent, WeaponKind } from '../core/types';
 
 export class Sound {
   private ctx: AudioContext | null = null;
@@ -15,6 +15,7 @@ export class Sound {
   private nextBeat = 0;
   private groanAt = new Map<number, number>();
   private t = 0;
+  private engine: { osc: OscillatorNode; osc2: OscillatorNode; gain: GainNode; lp: BiquadFilterNode } | null = null;
   muted = false;
 
   /** Call from a user gesture. Safe to call more than once. */
@@ -240,13 +241,108 @@ export class Sound {
     });
   }
 
+  gunshot(kind: WeaponKind): void {
+    const ctx = this.ctx!, at = ctx.currentTime;
+    const big = kind === 'shotgun', sharp = kind === 'rifle';
+    const n = this.noiseSrc(at, big ? 0.5 : 0.25);
+    const bp = ctx.createBiquadFilter();
+    bp.type = 'lowpass';
+    bp.frequency.setValueAtTime(big ? 2600 : sharp ? 5200 : 3800, at);
+    bp.frequency.exponentialRampToValueAtTime(300, at + (big ? 0.4 : 0.18));
+    const g = ctx.createGain();
+    this.env(g, at, big ? 0.55 : sharp ? 0.3 : 0.38, 0.002, big ? 0.45 : 0.16);
+    n.connect(bp).connect(g).connect(this.sfx);
+    const o = ctx.createOscillator();
+    o.frequency.setValueAtTime(big ? 90 : 130, at);
+    o.frequency.exponentialRampToValueAtTime(40, at + 0.15);
+    const og = ctx.createGain();
+    this.env(og, at, big ? 0.5 : 0.3, 0.002, 0.15);
+    o.connect(og).connect(this.sfx);
+    o.start(at);
+    o.stop(at + 0.2);
+  }
+
+  click(high = false): void {
+    const ctx = this.ctx!, at = ctx.currentTime;
+    const o = ctx.createOscillator();
+    o.type = 'square';
+    o.frequency.value = high ? 2400 : 1500;
+    const g = ctx.createGain();
+    this.env(g, at, 0.05, 0.001, 0.03);
+    o.connect(g).connect(this.sfx);
+    o.start(at);
+    o.stop(at + 0.05);
+  }
+
+  thud(vol: number): void {
+    const ctx = this.ctx!, at = ctx.currentTime;
+    const o = ctx.createOscillator();
+    o.frequency.setValueAtTime(110, at);
+    o.frequency.exponentialRampToValueAtTime(35, at + 0.25);
+    const g = ctx.createGain();
+    this.env(g, at, vol, 0.004, 0.3);
+    o.connect(g).connect(this.sfx);
+    o.start(at);
+    o.stop(at + 0.35);
+    const n = this.noiseSrc(at, 0.3);
+    const lp = ctx.createBiquadFilter();
+    lp.type = 'lowpass';
+    lp.frequency.value = 900;
+    const ng = ctx.createGain();
+    this.env(ng, at, vol * 0.6, 0.003, 0.25);
+    n.connect(lp).connect(ng).connect(this.sfx);
+  }
+
+  private engineOn(): void {
+    if (this.engine || !this.ctx) return;
+    const ctx = this.ctx;
+    const osc = ctx.createOscillator(), osc2 = ctx.createOscillator();
+    osc.type = 'sawtooth';
+    osc2.type = 'square';
+    const lp = ctx.createBiquadFilter();
+    lp.type = 'lowpass';
+    lp.frequency.value = 400;
+    const gain = ctx.createGain();
+    gain.gain.value = 0;
+    gain.gain.setTargetAtTime(0.07, ctx.currentTime, 0.2);
+    osc.connect(lp);
+    osc2.connect(lp);
+    lp.connect(gain).connect(this.master);
+    osc.start();
+    osc2.start();
+    this.engine = { osc, osc2, gain, lp };
+  }
+
+  private engineOff(): void {
+    if (!this.engine || !this.ctx) return;
+    const e = this.engine;
+    e.gain.gain.setTargetAtTime(0, this.ctx.currentTime, 0.15);
+    e.osc.stop(this.ctx.currentTime + 0.6);
+    e.osc2.stop(this.ctx.currentTime + 0.6);
+    this.engine = null;
+  }
+
   /** Per frame: react to events, pace footsteps and heartbeat, let nearby zombies groan. */
   update(s: GameState, events: readonly GameEvent[], dt: number, panOf: (x: number, y: number) => number): void {
     if (!this.ctx || this.muted) return;
     this.t += dt;
     const p = s.player.pos;
+    const car = s.phase === 'playing' ? playerVehicle(s) : null;
+    if (car) {
+      this.engineOn();
+      const f = 32 + Math.abs(car.speed) * 4.5;
+      this.engine!.osc.frequency.setTargetAtTime(f, this.ctx.currentTime, 0.08);
+      this.engine!.osc2.frequency.setTargetAtTime(f * 0.5, this.ctx.currentTime, 0.08);
+      this.engine!.lp.frequency.setTargetAtTime(300 + Math.abs(car.speed) * 60, this.ctx.currentTime, 0.1);
+    } else this.engineOff();
     for (const e of events) {
-      if (e.type === 'tier-up') this.stinger();
+      if (e.type === 'shot') this.gunshot(e.weapon);
+      else if (e.type === 'reload') this.click();
+      else if (e.type === 'empty') this.click(true);
+      else if (e.type === 'pickup' || e.type === 'purchase') this.chime();
+      else if (e.type === 'vehicle-crash') this.thud(Math.min(0.5, e.force / 25));
+      else if (e.type === 'zombie-killed' && car) this.thud(0.3);
+      else if (e.type === 'tier-up') this.stinger();
       else if (e.type === 'task-done') this.chime();
       else if (e.type === 'zombie-attack' || e.type === 'zombie-alert') {
         const z = s.zombies.find((q) => q.id === e.id);
@@ -262,7 +358,7 @@ export class Sound {
     if (this.t > this.nextSiren) { this.siren(); this.nextSiren = this.t + 25 + Math.random() * 30; }
 
     const sp = playerSpeed(s);
-    if (sp > 0.3 && this.t > this.nextStep) {
+    if (!car && sp > 0.3 && this.t > this.nextStep) {
       this.footstep(Math.min(0.12, 0.04 + sp * 0.015));
       this.nextStep = this.t + Math.max(0.24, 0.62 - sp * 0.07);
     }

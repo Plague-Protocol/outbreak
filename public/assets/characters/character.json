@@ -26,6 +26,26 @@
       "loop": false,
       "groundSpeed": 0
     },
+    "Hit": {
+      "duration": 0.333,
+      "loop": false,
+      "groundSpeed": 0
+    },
+    "Aim": {
+      "duration": 1.667,
+      "loop": true,
+      "groundSpeed": 0
+    },
+    "Shoot": {
+      "duration": 0.633,
+      "loop": false,
+      "groundSpeed": 0
+    },
+    "Reload": {
+      "duration": 1.667,
+      "loop": false,
+      "groundSpeed": 0
+    },
     "Interact": {
       "duration": 2,
       "loop": false,

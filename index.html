@@ -17,6 +17,7 @@
   .bar { position: fixed; left: 0; right: 0; height: 0; background: #000; transition: height .9s ease; pointer-events: none; z-index: 5; }
   #lb-top { top: 0; } #lb-bot { bottom: 0; }
   body.cinema .bar { height: 11vh; }
+  body.cinema #subs { bottom: calc(13vh + env(safe-area-inset-bottom, 0px)); }
   body.cinema #hud, body.cinema #arrow, body.cinema #hold { opacity: 0; }
 
   #hud { position: fixed; top: env(safe-area-inset-top, 0); left: 0; right: 0; padding: 12px 14px; pointer-events: none;
@@ -37,12 +38,12 @@
     background: rgba(255,255,255,.18); display: none; pointer-events: none; z-index: 4; }
   #hold-bar { height: 100%; width: 0; border-radius: 3px; background: #f2b630; }
 
-  #subs { position: fixed; left: 50%; bottom: calc(13vh + env(safe-area-inset-bottom, 0)); transform: translateX(-50%); width: min(92vw, 640px);
+  #subs { position: fixed; left: 50%; bottom: calc(200px + env(safe-area-inset-bottom, 0px)); transform: translateX(-50%); width: min(92vw, 640px);
     text-align: center; pointer-events: none; z-index: 6; opacity: 0; transition: opacity .3s; }
   #subs.on { opacity: 1; }
   #subs .who { font-size: 11px; letter-spacing: .2em; text-transform: uppercase; color: #f2b630; margin-bottom: 4px; }
   #subs .who.radio { color: #7fd38a; } #subs .who.narr { color: #9aa4b5; }
-  #subs .text { font-size: 17px; line-height: 1.45; text-shadow: 0 1px 4px #000, 0 0 12px #000; }
+  #subs .text { font-size: 16px; line-height: 1.45; text-shadow: 0 1px 4px #000, 0 0 12px #000; }
   #subs .text.narr { font-style: italic; color: #d7dbe2; }
   #skip { position: fixed; right: 14px; top: calc(11vh - 40px); z-index: 7; display: none; pointer-events: auto; background: none;
     color: #aaa; border: 1px solid #555; border-radius: 6px; padding: 5px 12px; font-size: 13px; }
@@ -77,6 +78,40 @@
   #ending p { margin: 0; max-width: 560px; line-height: 1.55; opacity: .88; }
   #ending .row { display: flex; gap: 12px; flex-wrap: wrap; justify-content: center; }
   #ending .seed { font-size: 11px; opacity: .45; margin-top: 6px; }
+  /* vitals under the clock */
+  #vitals { margin-top: 6px; display: flex; flex-direction: column; gap: 4px; }
+  #health { width: 120px; height: 7px; border-radius: 4px; background: rgba(255,255,255,.15); overflow: hidden; }
+  #health-bar { height: 100%; width: 100%; background: #d9443a; transition: width .2s; }
+  #funds { font-size: 13px; font-weight: 600; color: #9ee6a8; }
+  #car-health { font-size: 11px; opacity: .8; display: none; }
+  /* minimap: top right, under the objective */
+  #minimap { position: fixed; right: 12px; top: calc(env(safe-area-inset-top, 0px) + 96px); width: 112px; height: 112px; z-index: 4;
+    border-radius: 50%; pointer-events: auto; transition: opacity .6s; }
+  body.cinema #minimap, body.cinema .pad { opacity: 0; pointer-events: none; }
+  /* action buttons, bottom right */
+  .pad { position: fixed; z-index: 4; display: flex; align-items: center; justify-content: center; border-radius: 50%; color: #fff;
+    background: rgba(20,22,26,.55); border: 2px solid rgba(255,255,255,.28); font-weight: 700; letter-spacing: .05em; pointer-events: auto;
+    touch-action: none; transition: opacity .6s; text-align: center; line-height: 1.1; }
+  .pad.down { background: rgba(255,255,255,.25); }
+  #btn-fire { right: 22px; bottom: calc(env(safe-area-inset-bottom, 0px) + 34px); width: 88px; height: 88px; font-size: 14px; border-color: rgba(255,90,70,.7); }
+  #btn-use { right: 124px; bottom: calc(env(safe-area-inset-bottom, 0px) + 40px); width: 72px; height: 72px; font-size: 11px; display: none; border-color: rgba(242,182,48,.8); }
+  #btn-reload { right: 34px; bottom: calc(env(safe-area-inset-bottom, 0px) + 136px); width: 50px; height: 50px; font-size: 18px; }
+  #btn-swap { right: 96px; bottom: calc(env(safe-area-inset-bottom, 0px) + 128px); width: 64px; height: 64px; font-size: 10px; flex-direction: column; }
+  #btn-swap b { font-size: 13px; }
+  @media (hover: hover) and (pointer: fine) { .pad { opacity: .75; } }
+  /* the store */
+  #store { background: rgba(0,0,0,.82); z-index: 9; }
+  #store h1 { margin: 0; font-size: 26px; letter-spacing: .25em; color: #ff5b4b; }
+  #store .cash { color: #9ee6a8; font-weight: 600; }
+  #store ul { list-style: none; padding: 0; margin: 8px 0; width: min(92vw, 420px); }
+  #store li { display: flex; justify-content: space-between; align-items: center; padding: 10px 12px; border-bottom: 1px solid #333; gap: 12px; text-align: left; }
+  #store li small { display: block; opacity: .6; font-size: 11px; }
+  #store li button { min-width: 72px; padding: 8px 10px; border-radius: 4px; border: 1px solid #9ee6a8; background: none; color: #9ee6a8; font-weight: 700; }
+  #store li button:disabled { border-color: #444; color: #555; }
+  #store .close { margin-top: 8px; padding: 10px 26px; border: 1px solid #aaa; background: none; color: #ddd; border-radius: 4px; }
+  /* the full map */
+  #map-screen { background: rgba(4,6,9,.94); z-index: 9; gap: 6px; }
+  #map-screen p { margin: 0; font-size: 12px; opacity: .6; }
   #debug { position: fixed; bottom: 4px; left: 6px; font: 11px monospace; color: #9f9; white-space: pre; pointer-events: none; z-index: 9; }
 </style>
 </head>
@@ -86,7 +121,9 @@
 <div id="hurt" class="layer"></div>
 <div id="lb-top" class="bar"></div><div id="lb-bot" class="bar"></div>
 <div id="hud">
-  <div id="clock"><small>DOORS SEAL IN</small><div id="timer">0:00</div><button id="mute">Sound: on</button></div>
+  <div id="clock"><small>LAST EVAC IN</small><div id="timer">0:00</div>
+    <div id="vitals"><div id="health"><div id="health-bar"></div></div><div id="funds">$0</div><div id="car-health"></div></div>
+    <button id="mute">Sound: on</button></div>
   <div id="task"></div>
 </div>
 <div id="arrow"><span id="arrow-icon">&#9650;</span><small id="arrow-dist"></small></div>
@@ -97,11 +134,19 @@
 <div id="tap-catcher"></div>
 <button id="skip">Skip &rsaquo;</button>
 <div id="stick"><div id="knob"></div></div>
+<canvas id="minimap"></canvas>
+<div id="btn-fire" class="pad">FIRE</div>
+<div id="btn-use" class="pad">USE</div>
+<div id="btn-reload" class="pad">&#8635;</div>
+<div id="btn-swap" class="pad"><b id="ammo">12/24</b><span id="weapon-name">Pistol</span></div>
+<div id="store" class="screen"><h1>HALDEN GUNS</h1><div class="cash" id="store-cash"></div><ul id="store-items"></ul>
+  <button class="close" id="store-close">Leave</button></div>
+<div id="map-screen" class="screen"><canvas id="fullmap"></canvas><p>Tap anywhere or press M to close</p></div>
 <div id="title" class="screen">
   <h1>OUTBREAK</h1>
-  <p>Night one &middot; Ebute Gardens, Lagos</p>
+  <p>Day one &middot; Port Halden</p>
   <button id="start" disabled>Loading&hellip;</button>
-  <small>Sound on. Drag anywhere to move (WASD on a keyboard). Stand on a marker to use it.</small>
+  <small>Sound on. Drag anywhere to move, buttons to fire and use. Keyboard: WASD, Space fire, E use, R reload, Q swap, M map.</small>
 </div>
 <div id="ending" class="screen">
   <h1 id="end-title"></h1>

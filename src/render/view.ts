@@ -1,14 +1,15 @@
 import {
-  AdditiveBlending, CanvasTexture, Color, CylinderGeometry, DirectionalLight, Fog, HemisphereLight, InstancedMesh,
-  Mesh, MeshBasicMaterial, Object3D, type Material, PerspectiveCamera, PlaneGeometry, PointLight, RingGeometry, Scene, SpotLight,
-  Vector3, WebGLRenderer,
+  AdditiveBlending, CanvasTexture, Color, CylinderGeometry, DirectionalLight, Fog, Group, HemisphereLight, InstancedMesh,
+  Mesh, MeshBasicMaterial, Object3D, PerspectiveCamera, PlaneGeometry, PointLight, RingGeometry, Scene, SpotLight,
+  Vector3, WebGLRenderer, type Material,
 } from 'three';
 import { Actor, type CharacterAssets, type ClipName } from './characters';
-import { buildCity, type CityMeshes } from './city';
+import { buildCity, type CityMeshes, type LightSource } from './city';
 import { MeshBuilder } from './mesh';
-import { currentTask, playerSpeed, requiredDone, type GameState } from '../core/state';
-import { ATTACK_WINDUP, SAFEHOUSE_RADIUS, TASK_RADIUS, ZOMBIE_CAP } from '../core/config';
-import type { TaskId, Vec2, Zombie } from '../core/types';
+import { Effects, Evac, gunMesh, pickupMesh, storeMesh, vehicleMesh, wreckVehicle } from './props';
+import { currentTask, playerSpeed, playerVehicle, requiredDone, type GameState } from '../core/state';
+import { ATTACK_WINDUP, SAFEHOUSE_RADIUS, TASK_RADIUS, WEAPONS } from '../core/config';
+import type { GameEvent, TaskId, Vec2, WeaponKind, Zombie } from '../core/types';
 
 const params = new URLSearchParams(location.search);
 const VIEW_SPAN = Number(params.get('zoom')) || 24; // world units visible across the narrower screen axis
@@ -18,6 +19,7 @@ const YAW = Math.PI / 4; // fixed yaw (matches the control mapping)
 const POOL_LIGHTS = Math.max(0, Math.min(6, Number(params.get('lights') ?? 3))); // real lights at nearby lamps/fires
 const KNEEL_TASKS: TaskId[] = ['power', 'gate', 'fuel', 'medkit', 'rescue'];
 const FOG = 0x06080c;
+const MAX_VISIBLE_ZOMBIES = 12; // nearest ones get a skinned character; the rest are off screen anyway
 
 /** Soft dark blob for contact shadows (generated). */
 function blobTexture(): CanvasTexture {
@@ -35,12 +37,21 @@ function blobTexture(): CanvasTexture {
 export class GameView {
   readonly renderer: WebGLRenderer;
   private scene = new Scene();
-  private camera = new PerspectiveCamera(FOV, 1, 1, 400);
+  private camera = new PerspectiveCamera(FOV, 1, 1, 600);
   private city: CityMeshes | null = null;
+  private lightSources: LightSource[] = [];
   private player: Actor;
+  private gun: Mesh | null = null;
+  private gunKind: WeaponKind | null = null;
   private zombies = new Map<number, Actor>();
+  private actorPool: Actor[] = [];
   private extras: Array<{ actor: Actor; task: TaskId }> = [];
-  private taskProps: Mesh | null = null;
+  private level = new Group(); // everything rebuilt per night
+  private vehicles = new Map<number, { group: Group; wrecked: boolean }>();
+  private pickups = new Map<number, Group>();
+  private crates: InstancedMesh | null = null;
+  private evac = new Evac();
+  private effects: Effects;
   private rings: InstancedMesh;
   private beams: InstancedMesh;
   private shadows: InstancedMesh;
@@ -50,12 +61,15 @@ export class GameView {
   private focus = new Vector3();
   private target = new Vector3();
   private tmp = new Object3D();
+  private v3 = new Vector3();
   private colorTmp = new Color();
   private seed = -1;
   private distance = 40;
+  private zoom = 1;
   private shakeAmt = 0;
   private time = 0;
   private wasCaught = false;
+  private lastShot = -10;
   /** 0 = wide establishing shot, 1 = gameplay camera. Driven by the intro. */
   cinematic = 1;
 
@@ -68,20 +82,21 @@ export class GameView {
     this.scene.fog = new Fog(FOG, 30, 80);
 
     // night: cold sky fill, a weak moon, the flashlight does the real work
-    this.scene.add(new HemisphereLight(0x2c3a58, 0x0b0907, 1.1));
-    const moon = new DirectionalLight(0x8ea6ff, 0.55);
+    this.scene.add(new HemisphereLight(0x3a4a6c, 0x14100c, 1.9));
+    const moon = new DirectionalLight(0x9fb4ff, 1.0);
     moon.position.set(-30, 60, 20);
     this.scene.add(moon);
     this.flashlight = new SpotLight(0xffe9c4, 70, 26, 0.5, 0.55, 1.4);
     this.scene.add(this.flashlight, this.flashlight.target, this.fill);
     for (let i = 0; i < POOL_LIGHTS; i++) {
-      const l = new PointLight(0xffcf8a, 0, 16, 1.6);
+      const l = new PointLight(0xffcf8a, 0, 18, 1.6);
       this.pool.push(l);
       this.scene.add(l);
     }
 
     this.player = new Actor(assets, 'humanMaleA', true);
-    this.scene.add(this.player.root);
+    this.scene.add(this.player.root, this.level, this.evac.group);
+    this.effects = new Effects(this.scene);
 
     // objective markers: a glowing ring on the ground and a faint shaft of light
     const ringMat = new MeshBasicMaterial({ transparent: true, blending: AdditiveBlending, depthWrite: false, opacity: 0.85 });
@@ -91,7 +106,7 @@ export class GameView {
     this.shadows = new InstancedMesh(
       new PlaneGeometry(1.6, 1.6).rotateX(-Math.PI / 2),
       new MeshBasicMaterial({ map: blobTexture(), transparent: true, depthWrite: false }),
-      ZOMBIE_CAP + 8,
+      MAX_VISIBLE_ZOMBIES + 10,
     );
     for (const m of [this.rings, this.beams, this.shadows]) { m.frustumCulled = false; m.count = 0; this.scene.add(m); }
     this.shadows.renderOrder = 1;
@@ -112,29 +127,59 @@ export class GameView {
     this.distance = aspect < 1 ? VIEW_SPAN / (2 * tanV * aspect) : VIEW_SPAN / (2 * tanV);
   }
 
-  /** Kick the camera (attacks, gate slams). */
+  /** Kick the camera (attacks, crashes, gunfire). */
   shake(amount: number): void {
     this.shakeAmt = Math.max(this.shakeAmt, amount);
   }
 
   private rebuild(s: GameState): void {
     if (this.city) {
-      for (const m of [this.city.solid, this.city.glow, this.city.pools]) { this.scene.remove(m); m.geometry.dispose(); }
+      this.scene.remove(this.city.group, this.city.pools);
+      this.city.group.traverse((o) => { if ((o as Mesh).isMesh) (o as Mesh).geometry.dispose(); });
     }
     this.city = buildCity(s.map, s.seed);
-    this.scene.add(this.city.solid, this.city.glow, this.city.pools);
-    for (const a of this.zombies.values()) { this.scene.remove(a.root); a.dispose(); }
+    this.scene.add(this.city.group, this.city.pools);
+    this.lightSources = this.city.lights.slice();
+    this.lightSources.push({ pos: new Vector3(s.store.pos.x - 1.6, 5.3, s.store.pos.y), color: 0xff3b3b, kind: 'lamp', broken: false });
+
+    for (const a of this.zombies.values()) { this.scene.remove(a.root); this.actorPool.push(a); }
     this.zombies.clear();
     for (const e of this.extras) { this.scene.remove(e.actor.root); e.actor.dispose(); }
     this.extras = [];
-    if (this.taskProps) { this.scene.remove(this.taskProps); this.taskProps.geometry.dispose(); }
-    this.taskProps = this.buildTaskProps(s);
-    this.scene.add(this.taskProps);
+    this.scene.remove(this.level);
+    this.level = new Group();
+    this.scene.add(this.level);
+    this.vehicles.clear();
+    this.pickups.clear();
+
+    for (const v of s.vehicles) {
+      const g = vehicleMesh(v);
+      this.level.add(g);
+      this.vehicles.set(v.id, { group: g, wrecked: false });
+    }
+    for (const p of s.pickups) {
+      const g = pickupMesh(p.kind);
+      g.position.set(p.pos.x, 0, p.pos.y);
+      this.level.add(g);
+      this.pickups.set(p.id, g);
+    }
+    const store = storeMesh();
+    store.position.set(s.store.pos.x, 0.15, s.store.pos.y);
+    this.level.add(store);
+    // supply crates: olive boxes with a white stencil; opened ones sag open
+    const cb = new MeshBuilder().box(0, 0.45, 0, 1.1, 0.9, 0.8, 0x4a5233, 0x56603c).box(0, 0.91, 0, 0.5, 0.02, 0.12, 0xd8d3c8).box(0, 0.91, 0, 0.12, 0.02, 0.5, 0xd8d3c8);
+    this.crates = new InstancedMesh(cb.build(), this.city.group.children[0] ? ((this.city.group.children[0] as Mesh).material as Material) : new MeshBasicMaterial(), s.crates.length || 1);
+    this.crates.frustumCulled = false;
+    this.level.add(this.crates);
+    this.level.add(this.buildTaskProps(s));
+    this.evac.group.position.set(s.safehouse.x, 0.1, s.safehouse.y);
+    this.evac.reset();
     this.wasCaught = false;
     this.player.play('Idle', { fade: 0 });
+    this.player.setUpper(null);
   }
 
-  /** Small story props at each objective, plus people: the dead orderly, the guard, the survivor. */
+  /** Small story props at each objective, plus people: the fallen medic, the soldier, the survivor. */
   private buildTaskProps(s: GameState): Mesh {
     const b = new MeshBuilder();
     const person = (task: TaskId, skin: 'humanMaleA' | 'humanFemaleA', clip: ClipName, at: Vec2, yaw: number, once: boolean) => {
@@ -145,9 +190,9 @@ export class GameView {
       this.scene.add(a.root);
     };
     for (const t of s.tasks) {
-      const x = t.pos.x + 1.2, z = t.pos.y + 1.2;
+      const x = t.pos.x + 1.4, z = t.pos.y + 1.4;
       switch (t.id) {
-        case 'map': // a crate with the map and a police beacon still flashing
+        case 'map': // a police cruiser's light bar on a crate, still flashing in the dark
           b.box(x, 0.4, z, 0.9, 0.8, 0.9, 0x5a4630).box(x, 0.82, z, 0.6, 0.04, 0.45, 0xd8d2bf);
           break;
         case 'key': person('key', 'humanFemaleA', 'Death', { x, y: z }, 0.7, true); break;
@@ -171,7 +216,7 @@ export class GameView {
         case 'rescue': person('rescue', 'humanFemaleA', 'Talk', { x, y: z }, -2.2, false); break;
       }
     }
-    return new Mesh(b.build(), this.city!.solid.material as Material);
+    return new Mesh(b.build(), (this.city!.group.children[0] as Mesh).material as Material);
   }
 
   private screenPoint(p: Vec2): Vector3 {
@@ -195,6 +240,35 @@ export class GameView {
     return v.z < 1 && Math.abs(v.x) < margin && Math.abs(v.y) < margin;
   }
 
+  /** Visual reactions to this frame's events (tracers, blood, crashes). */
+  react(s: GameState, events: readonly GameEvent[]): void {
+    for (const e of events) {
+      switch (e.type) {
+        case 'shot': {
+          this.lastShot = this.time;
+          const hand = this.player.handPosition(this.v3.clone());
+          const from = hand.clone().add(new Vector3(Math.cos(s.player.heading) * 0.5, 0.05, Math.sin(s.player.heading) * 0.5));
+          this.effects.shot(from, new Vector3(e.to.x, 1.3, e.to.y));
+          this.shake(e.weapon === 'shotgun' ? 0.25 : 0.08);
+          this.player.setUpper('ShootUpper', { restart: true, timeScale: 1.6 });
+          break;
+        }
+        case 'zombie-hurt': case 'zombie-killed': {
+          const z = s.zombies.find((q) => q.id === e.id);
+          if (z) this.effects.burst(new Vector3(z.pos.x, 1.4, z.pos.y), 0x7a0a0a, e.type === 'zombie-killed' ? 12 : 6, 4);
+          break;
+        }
+        case 'vehicle-crash': {
+          const v = s.vehicles.find((q) => q.id === e.id);
+          if (v && e.force > 4) { this.effects.burst(new Vector3(v.pos.x, 1, v.pos.y), 0xffb040, 10, 6); this.shake(Math.min(1, e.force / 12)); }
+          break;
+        }
+        case 'reload': this.player.setUpper('ReloadUpper', { timeScale: 1.667 / WEAPONS[e.weapon].reload }); break;
+        default: break;
+      }
+    }
+  }
+
   render(s: GameState, dt: number): void {
     this.time += dt;
     if (s.seed !== this.seed) {
@@ -203,18 +277,20 @@ export class GameView {
       this.focus.set(s.player.pos.x, 0, s.player.pos.y);
     }
     const p = s.player.pos;
+    const car = playerVehicle(s);
 
-    // --- camera: follow with a little lead in the direction of travel, ease in from the intro shot
-    const lead = 0.35;
+    // --- camera: follow with a lead in the direction of travel; pull back when driving
+    const lead = car ? 0.9 : 0.35;
     this.target.set(p.x + s.player.vel.x * lead, 0, p.y + s.player.vel.y * lead);
     this.focus.lerp(this.target, 1 - Math.exp(-5 * dt));
+    this.zoom += ((car ? 1.55 + Math.min(0.5, Math.abs(car.speed) / 30) : 1) - this.zoom) * (1 - Math.exp(-2 * dt));
     const c = this.cinematic;
-    const dist = this.distance * (1 + (1 - c) * 1.6);
+    const dist = this.distance * this.zoom * (1 + (1 - c) * 1.6);
     const elev = ELEVATION + (1 - c) * 0.35;
+    const yaw = YAW + (1 - c) * 0.5;
     const fog = this.scene.fog as Fog;
     fog.near = dist * 0.92;
     fog.far = dist * 1.75;
-    const yaw = YAW + (1 - c) * 0.5;
     this.camera.position.set(
       this.focus.x + Math.cos(elev) * Math.cos(yaw) * dist,
       Math.sin(elev) * dist,
@@ -228,77 +304,144 @@ export class GameView {
     }
     this.camera.lookAt(this.focus.x, 1, this.focus.z);
 
-    // --- player
+    // --- player (hidden inside a vehicle)
     const caught = s.phase === 'lost' && s.lossReason === 'caught';
-    if (caught && !this.wasCaught) { this.wasCaught = true; this.player.play('Death', { once: true, fade: 0.15 }); }
-    else if (!caught) {
+    this.player.root.visible = !car;
+    if (caught && !this.wasCaught) { this.wasCaught = true; this.player.setUpper(null); this.player.play('Death', { once: true, fade: 0.15 }); }
+    else if (!caught && !car) {
       const hold = s.hold.taskId;
       if (hold && playerSpeed(s) < 0.6) this.player.play(KNEEL_TASKS.includes(hold) ? 'Kneel' : 'Interact', { fade: 0.25 });
       else if (s.phase === 'won') this.player.play('Idle', { fade: 0.3 });
       else this.player.locomote(playerSpeed(s));
+      // gun up while shooting or reloading, lowered otherwise
+      const a = s.arsenal;
+      if (hold) this.player.setUpper(null);
+      else if (a.reloadT > 0) this.player.setUpper('ReloadUpper', { timeScale: 1.667 / WEAPONS[a.weapon ?? 'pistol'].reload });
+      else if (this.time - this.lastShot < 1.2) { if (this.time - this.lastShot > 0.35) this.player.setUpper('AimUpper'); }
+      else this.player.setUpper(null);
     }
     this.player.update(p.x, p.y, s.player.heading, dt, true);
+    this.updateGun(s, !car && !caught && !s.hold.taskId);
 
-    // flashlight from the chest, pointing where the player faces
-    const yawP = this.player.root.rotation.y;
+    // flashlight from the chest (or headlights from the car), pointing where you face
+    const yawP = car ? Math.PI / 2 - car.heading : this.player.yawAngle;
     const fx = Math.sin(yawP), fz = Math.cos(yawP);
-    this.flashlight.position.set(p.x + fx * 0.4, 1.9, p.y + fz * 0.4);
-    this.flashlight.target.position.set(p.x + fx * 9, 0, p.y + fz * 9);
-    this.flashlight.intensity = caught ? 0 : 70 * (0.96 + Math.sin(this.time * 31) * 0.02);
+    if (car) {
+      this.flashlight.position.set(p.x + fx * 3.2, 1.1, p.y + fz * 3.2);
+      this.flashlight.target.position.set(p.x + fx * 16, 0, p.y + fz * 16);
+      this.flashlight.angle = 0.6;
+    } else {
+      this.flashlight.position.set(p.x + fx * 0.4, 1.9, p.y + fz * 0.4);
+      this.flashlight.target.position.set(p.x + fx * 9, 0, p.y + fz * 9);
+      this.flashlight.angle = 0.5;
+    }
+    this.flashlight.intensity = caught ? 0 : (car ? 110 : 70) * (0.96 + Math.sin(this.time * 31) * 0.02);
     this.fill.position.set(p.x - fx * 0.8, 3, p.y - fz * 0.8);
 
-    // --- zombies
-    const alive = new Set<number>();
+    // --- vehicles, pickups, crates
+    for (const v of s.vehicles) {
+      const r = this.vehicles.get(v.id);
+      if (!r) continue;
+      r.group.position.set(v.pos.x, 0, v.pos.y);
+      r.group.rotation.y = -v.heading;
+      if (v.wrecked && !r.wrecked) { r.wrecked = true; wreckVehicle(r.group); }
+      (r.group.getObjectByName('lights') as Mesh).visible = !v.wrecked && v.id === s.player.vehicleId;
+    }
+    for (const pk of s.pickups) {
+      const g = this.pickups.get(pk.id);
+      if (!g) continue;
+      g.visible = !pk.taken;
+      const item = g.getObjectByName('item')!;
+      item.rotation.y = this.time * 1.5 + pk.id;
+      if (pk.kind !== 'ammo') item.position.y = 0.7 + Math.sin(this.time * 2 + pk.id) * 0.12;
+    }
+    if (this.crates) {
+      s.crates.forEach((cr, i) => {
+        this.tmp.position.set(cr.pos.x, 0.15, cr.pos.y);
+        this.tmp.rotation.set(0, cr.id, cr.opened ? 0.25 : 0);
+        this.tmp.scale.set(1, cr.opened ? 0.45 : 1, 1);
+        this.tmp.updateMatrix();
+        this.crates!.setMatrixAt(i, this.tmp.matrix);
+      });
+      this.crates.count = s.crates.length;
+      this.crates.instanceMatrix.needsUpdate = true;
+    }
+    this.evac.group.visible = s.safehouseKnown;
+    this.evac.update(dt, this.time, s.phase === 'won');
+
+    // --- zombies: the nearest ones get a character; corpses fall and stay a while
     let shadowN = 0;
     const shadowAt = (x: number, z: number, sc = 1) => {
-      this.tmp.position.set(x, 0.04, z);
+      if (shadowN >= this.shadows.instanceMatrix.count) return;
+      this.tmp.position.set(x, 0.2, z);
       this.tmp.rotation.set(0, 0, 0);
       this.tmp.scale.set(sc, 1, sc);
       this.tmp.updateMatrix();
       this.shadows.setMatrixAt(shadowN++, this.tmp.matrix);
     };
-    if (!caught) shadowAt(p.x, p.y);
-    for (const z of s.zombies) {
-      alive.add(z.id);
+    if (!caught && !car) shadowAt(p.x, p.y);
+    const reach = this.distance * this.zoom * 0.9;
+    const visible = s.zombies
+      .map((z) => ({ z, d: Math.abs(z.pos.x - this.focus.x) + Math.abs(z.pos.y - this.focus.z) }))
+      .filter((q) => q.d < reach)
+      .sort((a, b) => a.d - b.d)
+      .slice(0, MAX_VISIBLE_ZOMBIES);
+    const keep = new Set(visible.map((q) => q.z.id));
+    for (const [id, a] of this.zombies) {
+      if (!keep.has(id)) { this.scene.remove(a.root); this.zombies.delete(id); this.actorPool.push(a); }
+    }
+    for (const { z } of visible) {
       let a = this.zombies.get(z.id);
       if (!a) {
-        a = new Actor(this.assets, z.id % 2 === 0 ? 'zombieMaleA' : 'zombieFemaleA');
+        a = this.actorPool.pop() ?? new Actor(this.assets, 'zombieMaleA');
+        a.setSkin(z.id % 2 === 0 ? 'zombieMaleA' : 'zombieFemaleA');
+        a.reset();
         this.zombies.set(z.id, a);
         this.scene.add(a.root);
       }
-      const near = Math.abs(z.pos.x - this.focus.x) + Math.abs(z.pos.y - this.focus.z) < this.distance * 0.9;
-      a.root.visible = near;
-      if (near) {
-        this.animateZombie(a, z);
-        shadowAt(z.pos.x, z.pos.y);
-      }
-      a.update(z.pos.x, z.pos.y, z.heading, dt, near);
-    }
-    for (const [id, a] of this.zombies) {
-      if (!alive.has(id)) { this.scene.remove(a.root); a.dispose(); this.zombies.delete(id); }
+      this.animateZombie(a, z);
+      if (z.action !== 'dead') shadowAt(z.pos.x, z.pos.y);
+      a.update(z.pos.x, z.pos.y, z.heading, dt, true);
     }
     for (const e of this.extras) {
       const t = s.tasks.find((x) => x.id === e.task);
-      // the survivor locks herself in once helped
-      e.actor.root.visible = !(e.task === 'rescue' && t?.done);
-      if (e.actor.root.visible) shadowAt(e.actor.root.position.x, e.actor.root.position.z, e.task === 'rescue' ? 1 : 1.5);
+      e.actor.root.visible = !(e.task === 'rescue' && t?.done); // the survivor locks herself in once helped
       e.actor.update(e.actor.root.position.x, e.actor.root.position.z, Math.PI / 2 - e.actor.root.rotation.y, dt, e.task === 'rescue');
     }
     this.shadows.count = shadowN;
     this.shadows.instanceMatrix.needsUpdate = true;
 
+    this.effects.update(dt);
     this.updateLights();
     this.updateMarkers(s);
     this.renderer.render(this.scene, this.camera);
   }
 
+  /** The gun follows the right hand, pointing where the player faces. */
+  private updateGun(s: GameState, show: boolean): void {
+    const w = s.arsenal.weapon;
+    if (w !== this.gunKind) {
+      if (this.gun) this.scene.remove(this.gun);
+      this.gun = w ? gunMesh(w) : null;
+      this.gunKind = w;
+      if (this.gun) this.scene.add(this.gun);
+    }
+    if (!this.gun) return;
+    this.gun.visible = show;
+    if (!show) return;
+    this.player.handPosition(this.gun.position);
+    this.gun.rotation.set(0, this.player.yawAngle - Math.PI / 2, 0);
+  }
+
   private animateZombie(a: Actor, z: Zombie): void {
+    if (z.staggerT > 0 && z.action !== 'dead') { a.play('Hit', { once: true, fade: 0.05, restart: false }); return; }
     switch (z.action) {
       case 'rise': a.play('ZRise', { once: true, fade: 0 }); break;
       case 'idle': a.play('ZIdle', { fade: 0.3 }); break;
+      case 'dead': a.play('Death', { once: true, fade: 0.1, timeScale: 1.4 }); break;
       case 'attack':
         // time the swing so it lands as the wind-up ends
-        a.play('ZAttack', { once: true, fade: 0.08, timeScale: 0.75 / ATTACK_WINDUP[z.kind], restart: false });
+        a.play('ZAttack', { once: true, fade: 0.08, timeScale: 0.75 / ATTACK_WINDUP[z.kind] });
         break;
       case 'feed': a.play('ZAttack', { fade: 0.2, timeScale: 0.8 }); break;
       default:
@@ -310,9 +453,8 @@ export class GameView {
 
   /** Move the few real lights to the light sources nearest the camera focus; flicker the broken ones. */
   private updateLights(): void {
-    if (!this.city) return;
     const f = this.focus;
-    const near = this.city.lights
+    const near = this.lightSources
       .map((l) => ({ l, d: (l.pos.x - f.x) ** 2 + (l.pos.z - f.z) ** 2 }))
       .sort((a, b) => a.d - b.d)
       .slice(0, this.pool.length);
@@ -325,7 +467,7 @@ export class GameView {
       let k = 1;
       if (n.l.kind === 'fire') k = 0.75 + Math.sin(t * 13 + i) * 0.12 + Math.sin(t * 29 + i * 3) * 0.1;
       else if (n.l.broken) k = Math.sin(t * 2.3 + i * 5) > 0.75 && Math.sin(t * 37) > 0 ? 0.1 : 1;
-      light.intensity = (n.l.kind === 'fire' ? 30 : 45) * k;
+      light.intensity = (n.l.kind === 'fire' ? 30 : n.l.kind === 'flood' ? 70 : 45) * k;
     });
   }
 
@@ -337,7 +479,7 @@ export class GameView {
     const set = (i: number, pos: Vec2, radius: number, color: number, beam: boolean, visible: boolean) => {
       const pulse = 1 + Math.sin(this.time * 3 + i) * 0.06;
       const r = visible ? radius * pulse : 0;
-      this.tmp.position.set(pos.x, 0.06, pos.y);
+      this.tmp.position.set(pos.x, 0.22, pos.y);
       this.tmp.rotation.set(0, 0, 0);
       this.tmp.scale.set(r, 1, r);
       this.tmp.updateMatrix();
@@ -362,8 +504,7 @@ export class GameView {
     }
   }
 
-  get stats(): { cityTriangles: number; lights: number } {
-    return { cityTriangles: this.city?.triangles ?? 0, lights: this.city?.lights.length ?? 0 };
+  get stats(): { cityTriangles: number; lights: number; zombieActors: number } {
+    return { cityTriangles: this.city?.triangles ?? 0, lights: this.lightSources.length, zombieActors: this.zombies.size };
   }
 }
-

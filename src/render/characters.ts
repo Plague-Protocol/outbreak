@@ -1,5 +1,5 @@
 import {
-  AnimationAction, AnimationClip, AnimationMixer, EqualStencilFunc, GreaterDepth, KeepStencilOp, LoopOnce, LoopRepeat,
+  AnimationAction, AnimationClip, Vector3, AnimationMixer, EqualStencilFunc, GreaterDepth, KeepStencilOp, LoopOnce, LoopRepeat,
   MeshBasicMaterial, MeshLambertMaterial, NearestFilter, Object3D, SkinnedMesh, SRGBColorSpace, TextureLoader, type Material,
 } from 'three';
 import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
@@ -9,8 +9,12 @@ export const SKINS = ['humanMaleA', 'humanFemaleA', 'zombieMaleA', 'zombieFemale
 export type SkinName = (typeof SKINS)[number];
 
 export type ClipName =
-  | 'Idle' | 'Walk' | 'Jog' | 'Sprint' | 'Death' | 'Interact' | 'Kneel' | 'Talk'
-  | 'ZIdle' | 'ZWalk' | 'ZAttack' | 'ZRise';
+  | 'Idle' | 'Walk' | 'Jog' | 'Sprint' | 'Death' | 'Hit' | 'Aim' | 'Shoot' | 'Reload' | 'Interact' | 'Kneel' | 'Talk'
+  | 'ZIdle' | 'ZWalk' | 'ZAttack' | 'ZRise'
+  | 'AimUpper' | 'ShootUpper' | 'ReloadUpper';
+export type UpperClip = 'AimUpper' | 'ShootUpper' | 'ReloadUpper';
+
+const UPPER_BONES = /^(Spine|Chest|UpperChest|Neck|Head|Left(Shoulder|Arm|ForeArm|Hand)|Right(Shoulder|Arm|ForeArm|Hand))\./;
 
 export const HEIGHT = 2.8; // world units; must match the core's scale (about 1.75 m)
 const TURN_RATE = 10; // rad/s: characters turn, they do not snap
@@ -39,6 +43,11 @@ export async function loadCharacterAssets(): Promise<CharacterAssets> {
   for (const c of gltf.animations) {
     clips.set(c.name as ClipName, c);
     groundSpeed.set(c.name as ClipName, (meta.clips[c.name]?.groundSpeed ?? 0) * scale);
+  }
+  // upper-body versions of the gun clips, layered over locomotion
+  for (const name of ['Aim', 'Shoot', 'Reload'] as const) {
+    const c = clips.get(name);
+    if (c) clips.set(`${name}Upper`, new AnimationClip(`${name}Upper`, c.duration, c.tracks.filter((t) => UPPER_BONES.test(t.name))));
   }
 
   const textures = new TextureLoader();
@@ -70,6 +79,8 @@ export class Actor {
   private current: ClipName | null = null;
   private yaw = 0;
   private placed = false;
+  private upper: UpperClip | null = null;
+  private hand: Object3D | null = null;
 
   constructor(private assets: CharacterAssets, skin: SkinName, withXray = false) {
     this.root = clone(assets.template);
@@ -87,6 +98,39 @@ export class Actor {
       }
     });
     this.mixer = new AnimationMixer(this.root);
+    this.hand = this.root.getObjectByName('RightHand') ?? null;
+  }
+
+  /**
+   * Upper-body layer (aim, shoot, reload) over whatever the legs are doing. It runs at a high
+   * weight so it dominates the arms and spine, while the legs (not in the clip) keep walking.
+   */
+  setUpper(name: UpperClip | null, opts: { timeScale?: number; restart?: boolean } = {}): void {
+    if (name === this.upper && !opts.restart) {
+      if (name && opts.timeScale) this.action(name).setEffectiveTimeScale(opts.timeScale);
+      return;
+    }
+    if (this.upper && this.upper !== name) this.action(this.upper).fadeOut(0.15);
+    this.upper = name;
+    if (!name) return;
+    const a = this.action(name);
+    a.reset();
+    a.setLoop(name === 'AimUpper' ? LoopRepeat : LoopOnce, Infinity);
+    a.clampWhenFinished = true;
+    a.setEffectiveTimeScale(opts.timeScale ?? 1);
+    a.weight = 4;
+    a.fadeIn(0.1);
+    a.play();
+  }
+
+  /** World position of the right hand (for the gun and the muzzle flash). */
+  handPosition(out: Vector3): Vector3 {
+    if (this.hand) return this.hand.getWorldPosition(out);
+    return out.copy(this.root.position).setY(1.3);
+  }
+
+  get yawAngle(): number {
+    return this.yaw;
   }
 
   private action(name: ClipName): AnimationAction {
@@ -145,6 +189,23 @@ export class Actor {
     this.root.position.set(x, 0, z);
     this.root.rotation.y = this.yaw;
     if (animate) this.mixer.update(dt);
+  }
+
+  /** Swap the skin (pooled actors are reused for different zombies). */
+  setSkin(skin: SkinName): void {
+    const mat = this.assets.materials[skin];
+    this.root.traverse((o) => {
+      const m = o as SkinnedMesh;
+      if (m.isSkinnedMesh && m.material !== this.assets.xray) m.material = mat;
+    });
+  }
+
+  /** Forget the current animation and facing, ready for reuse. */
+  reset(): void {
+    this.mixer.stopAllAction();
+    this.current = null;
+    this.upper = null;
+    this.placed = false;
   }
 
   dispose(): void {

@@ -63,6 +63,25 @@ export class MeshBuilder {
     return this;
   }
 
+  /** Pitched roof sitting on a w x d footprint at height y0, ridge `h` above, ridge running along x or z. */
+  gable(cx: number, cz: number, w: number, d: number, y0: number, h: number, alongX: boolean, roof: number, end: number): this {
+    const x0 = cx - w / 2, x1 = cx + w / 2, z0 = cz - d / 2, z1 = cz + d / 2, y1 = y0 + h;
+    if (alongX) {
+      const zm = cz;
+      this.quad([x0, y0, z1, x1, y0, z1, x1, y1, zm, x0, y1, zm], [0, d / 2, h].map((v) => v / Math.hypot(d / 2, h)), roof);
+      this.quad([x1, y0, z0, x0, y0, z0, x0, y1, zm, x1, y1, zm], [0, d / 2, -h].map((v) => v / Math.hypot(d / 2, h)), roof);
+      this.tri([x1, y0, z1, x1, y0, z0, x1, y1, zm], [1, 0, 0], end);
+      this.tri([x0, y0, z0, x0, y0, z1, x0, y1, zm], [-1, 0, 0], end);
+    } else {
+      const xm = cx;
+      this.quad([x1, y0, z1, x1, y0, z0, xm, y1, z0, xm, y1, z1], [w / 2, h, 0].map((v) => v / Math.hypot(w / 2, h)), roof);
+      this.quad([x0, y0, z0, x0, y0, z1, xm, y1, z1, xm, y1, z0], [-w / 2, h, 0].map((v) => v / Math.hypot(w / 2, h)), roof);
+      this.tri([x0, y0, z1, x1, y0, z1, xm, y1, z1], [0, 0, 1], end);
+      this.tri([x1, y0, z0, x0, y0, z0, xm, y1, z0], [0, 0, -1], end);
+    }
+    return this;
+  }
+
   get triangles(): number {
     return this.pos.length / 9;
   }

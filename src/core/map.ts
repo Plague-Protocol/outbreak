@@ -173,7 +173,7 @@ export function generateMap(seed: number): MapData {
           }
           decor.push({ kind: 'lot', x: bx, y: by, w: BLOCK, h: BLOCK });
           scatter(['barrel', 'barrel', 'dumpster'], int(rng, 1, 3));
-          if (i === 3) block.landmark = 'Docklands';
+          if (i === 3 || i === 4) block.landmark = 'Docklands';
           break;
         }
         case 'outskirts': {
