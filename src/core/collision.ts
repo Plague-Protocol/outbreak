@@ -25,26 +25,45 @@ function pushOut(pos: Vec2, r: number, b: Building): boolean {
   return true;
 }
 
-/** Resolve a circle against buildings and world bounds (slides along walls). */
-export function resolve(map: MapData, pos: Vec2, r: number): void {
-  for (let pass = 0; pass < 2; pass++) {
-    for (const b of map.buildings) pushOut(pos, r, b);
+/** Obstacle indices whose grid cells touch a circle's bounding box. */
+export function nearbyObstacles(map: MapData, pos: Vec2, r: number, out: number[] = []): number[] {
+  out.length = 0;
+  const c = map.gridCell, n = map.gridN;
+  const gx0 = Math.max(0, Math.floor((pos.x - r) / c)), gx1 = Math.min(n - 1, Math.floor((pos.x + r) / c));
+  const gy0 = Math.max(0, Math.floor((pos.y - r) / c)), gy1 = Math.min(n - 1, Math.floor((pos.y + r) / c));
+  for (let gy = gy0; gy <= gy1; gy++) for (let gx = gx0; gx <= gx1; gx++) {
+    for (const idx of map.grid[gy * n + gx]!) if (!out.includes(idx)) out.push(idx);
   }
-  pos.x = Math.max(r, Math.min(map.size - r, pos.x));
-  pos.y = Math.max(r, Math.min(map.size - r, pos.y));
+  return out;
 }
 
-/** True if a straight segment stays clear of every building (inflated by r). */
-export function lineClear(map: MapData, a: Vec2, b: Vec2, r: number): boolean {
+const scratch: number[] = [];
+
+/** Resolve a circle against obstacles and world bounds (slides along walls). Returns true on contact. */
+export function resolve(map: MapData, pos: Vec2, r: number): boolean {
+  let hit = false;
+  for (let pass = 0; pass < 2; pass++) {
+    for (const idx of nearbyObstacles(map, pos, r + 0.5, scratch)) hit = pushOut(pos, r, map.buildings[idx]!) || hit;
+  }
+  const x = Math.max(r, Math.min(map.size - r, pos.x));
+  const y = Math.max(r, Math.min(map.size - r, pos.y));
+  if (x !== pos.x || y !== pos.y) hit = true;
+  pos.x = x;
+  pos.y = y;
+  return hit;
+}
+
+/** True if a straight segment stays on walkable nav cells (cells already include clearance). */
+export function lineClear(map: MapData, a: Vec2, b: Vec2, _r: number): boolean {
   const dx = b.x - a.x, dy = b.y - a.y;
   const len = Math.hypot(dx, dy);
   const steps = Math.max(1, Math.ceil(len / 0.5));
+  const cols = map.cols;
   for (let i = 1; i < steps; i++) {
     const t = i / steps;
-    const px = a.x + dx * t, py = a.y + dy * t;
-    for (const bl of map.buildings) {
-      if (px > bl.x - r && px < bl.x + bl.w + r && py > bl.y - r && py < bl.y + bl.h + r) return false;
-    }
+    const cx = Math.floor(a.x + dx * t), cy = Math.floor(a.y + dy * t);
+    if (cx < 0 || cy < 0 || cx >= cols || cy >= cols) return false;
+    if (map.blocked[cy * cols + cx] === 1) return false;
   }
   return true;
 }

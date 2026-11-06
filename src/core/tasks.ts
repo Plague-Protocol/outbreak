@@ -32,8 +32,8 @@ const OPTIONAL_POOL: OptionalDef[] = [
   { id: 'rescue', label: 'Rescue a survivor', hint: 'Optional: bonus funds (-15s)', requires: [], timeCost: 15, reward: 'funds' },
 ];
 
-export const MIN_TASK_SEPARATION = 15;
-export const MIN_SPAWN_DISTANCE = 12;
+export const MIN_TASK_SEPARATION = 45;
+export const MIN_SPAWN_DISTANCE = 25;
 
 /**
  * Pick and place the task chain. Required tasks come first, in an order where every
