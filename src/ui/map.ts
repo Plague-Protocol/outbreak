@@ -6,7 +6,8 @@ import type { MapData, Vec2 } from '../core/types';
 // The map is drawn rotated 45 degrees so that "up" on the map is "up" on screen (the camera's
 // fixed yaw). World (x, y) -> map: rotate by +45 degrees.
 const ROT = Math.PI / 4;
-const PX = 2; // pixels per world unit in the cached base image
+const PX = 3; // pixels per world unit in the cached base image (sharp when the full map is zoomed in)
+const MAX_ZOOM = 4;
 
 const DISTRICT_COLORS: Record<string, string> = {
   downtown: '#3b3e46', residential: '#33402f', park: '#26402a', industrial: '#3d3935', outskirts: '#3a332b', water: '#0f2a3d',
@@ -15,6 +16,11 @@ const SOLID_COLORS: Record<string, string> = {
   tower: '#15161a', building: '#15161a', shop: '#2a2622', house: '#4a3a30', warehouse: '#24272c', container: '#5a3a2a',
   store: '#8c2422', hospital: '#c8c8c0', bus: '#6a6a60', truck: '#3f4628', sandbag: '#7a6a4a', ambulance: '#d8d8d2', tree: '#2e5a33', deadtree: '#4a4136', water: '#0f2a3d',
 };
+
+/** The left safe-area inset (a phone's notch in landscape), in CSS px. */
+function insetLeft(): number {
+  return parseFloat(getComputedStyle(document.documentElement).getPropertyValue('--l')) || 0;
+}
 
 /** Static map image (roads, districts, buildings), drawn once per night. */
 function drawBase(map: MapData): HTMLCanvasElement {
@@ -113,19 +119,96 @@ export class CityMap {
   private full: HTMLCanvasElement;
   private overlay: HTMLElement;
   open = false;
+  // full map view: zoom 1 fits the whole city; `center` is the world point in the middle of the screen
+  private zoom = 1;
+  private center: Vec2 = { x: 0, y: 0 };
+  private k = 1; // screen px per world unit, as last drawn
+  private pointers = new Map<number, { x: number; y: number }>();
+  private gesture = { moved: 0, pinch: 0 };
+  private player: Vec2 | null = null;
+  private openedAt = 0;
 
   constructor(onToggle: (open: boolean) => void) {
     this.mini = document.getElementById('minimap') as HTMLCanvasElement;
     this.full = document.getElementById('fullmap') as HTMLCanvasElement;
     this.overlay = document.getElementById('map-screen')!;
-    const toggle = () => { this.open = !this.open; this.overlay.style.display = this.open ? 'flex' : 'none'; onToggle(this.open); };
+    const toggle = () => {
+      this.open = !this.open;
+      this.overlay.style.display = this.open ? 'flex' : 'none';
+      if (this.open) {
+        this.openedAt = performance.now();
+        // a phone screen is short: open zoomed in on the player; a big screen shows the whole city
+        const short = Math.min(window.innerWidth, window.innerHeight) < 500;
+        this.zoom = short ? 1.9 : 1;
+        this.center = short && this.player ? { ...this.player } : { x: -1, y: -1 };
+      }
+      this.pointers.clear();
+      onToggle(this.open);
+    };
     this.mini.addEventListener('pointerdown', (e) => { e.stopPropagation(); toggle(); });
-    this.overlay.addEventListener('pointerdown', () => { if (this.open) toggle(); });
     window.addEventListener('keydown', (e) => { if (e.code === 'KeyM') toggle(); });
     this.toggle = toggle;
+
+    // drag to move, pinch or wheel to zoom, a plain tap closes
+    const o = this.overlay;
+    o.addEventListener('pointerdown', (e) => {
+      if (!this.open || (e.target as HTMLElement).closest('button')) return;
+      this.pointers.set(e.pointerId, { x: e.clientX, y: e.clientY });
+      if (this.pointers.size === 1) this.gesture = { moved: 0, pinch: 0 };
+      if (this.pointers.size === 2) this.gesture.pinch = this.spread();
+      o.setPointerCapture?.(e.pointerId);
+    });
+    o.addEventListener('pointermove', (e) => {
+      const last = this.pointers.get(e.pointerId);
+      if (!last) return;
+      const dx = e.clientX - last.x, dy = e.clientY - last.y;
+      last.x = e.clientX; last.y = e.clientY;
+      if (this.pointers.size === 1) {
+        this.gesture.moved += Math.abs(dx) + Math.abs(dy);
+        this.pan(dx, dy);
+      } else if (this.pointers.size === 2) {
+        this.gesture.moved += 99;
+        const d = this.spread();
+        if (this.gesture.pinch > 0) this.zoomBy(d / this.gesture.pinch);
+        this.gesture.pinch = d;
+      }
+    });
+    const up = (e: PointerEvent) => {
+      if (!this.pointers.delete(e.pointerId)) return;
+      if (this.pointers.size === 0 && this.gesture.moved < 10 && e.type === 'pointerup') toggle();
+      if (this.pointers.size === 1) this.gesture.pinch = 0;
+    };
+    o.addEventListener('pointerup', up);
+    o.addEventListener('pointercancel', up);
+    o.addEventListener('wheel', (e) => { e.preventDefault(); this.zoomBy(Math.exp(-e.deltaY * 0.0015)); }, { passive: false });
+    const btn = (id: string, f: () => void) => document.getElementById(id)?.addEventListener('click', (e) => {
+      e.stopPropagation();
+      // the tap that opened the map also ends in a click, right where the close button now sits
+      if (performance.now() - this.openedAt > 400) f();
+    });
+    btn('map-in', () => this.zoomBy(1.4));
+    btn('map-out', () => this.zoomBy(1 / 1.4));
+    btn('map-close', () => { if (this.open) toggle(); });
   }
 
   toggle: () => void;
+
+  private spread(): number {
+    const [a, b] = [...this.pointers.values()];
+    return a && b ? Math.hypot(a.x - b.x, a.y - b.y) : 0;
+  }
+
+  private zoomBy(f: number): void {
+    this.zoom = Math.min(MAX_ZOOM, Math.max(1, this.zoom * f));
+  }
+
+  /** Move the full map by a screen-space drag (the map is rotated, so turn it back into world units). */
+  private pan(dx: number, dy: number): void {
+    if (this.center.x < 0) return;
+    const c = Math.cos(-ROT), s = Math.sin(-ROT);
+    this.center.x -= (dx * c - dy * s) / this.k;
+    this.center.y -= (dx * s + dy * c) / this.k;
+  }
 
   private ensureBase(s: GameState): HTMLCanvasElement {
     if (!this.base || this.seed !== s.seed) {
@@ -137,6 +220,7 @@ export class CityMap {
 
   /** The corner minimap, centred on the player, ~60 m around. */
   drawMini(s: GameState): void {
+    this.player = s.player.pos; // the full map opens on the player
     const base = this.ensureBase(s);
     const dpr = Math.min(2, window.devicePixelRatio || 1);
     const size = this.mini.clientWidth || 120;
@@ -186,23 +270,28 @@ export class CityMap {
     const base = this.ensureBase(s);
     const dpr = Math.min(2, window.devicePixelRatio || 1);
     const W = window.innerWidth, H = window.innerHeight;
-    const size = Math.min(W, H - 90) * 0.96;
-    this.full.style.width = `${size}px`;
-    this.full.style.height = `${size}px`;
-    if (this.full.width !== Math.round(size * dpr)) this.full.width = this.full.height = Math.round(size * dpr);
+    const cw = Math.round(W * dpr), ch = Math.round(H * dpr);
+    if (this.full.width !== cw || this.full.height !== ch) { this.full.width = cw; this.full.height = ch; }
     const g = this.full.getContext('2d')!;
-    const S = size * dpr;
-    const k = S / (s.map.size * Math.SQRT2); // the rotated square fits
-    const cx = S / 2, cy = S / 2;
+    const half = s.map.size / 2;
+    // zoom 1: the rotated city (a diamond as tall and wide as its diagonal) fits the screen
+    const fit = (Math.min(W, H - 24) * 0.97) / (s.map.size * Math.SQRT2);
+    this.k = fit * this.zoom;
+    if (this.center.x < 0 || this.zoom <= 1.001) this.center = { x: half, y: half };
+    this.center.x = Math.min(s.map.size, Math.max(0, this.center.x));
+    this.center.y = Math.min(s.map.size, Math.max(0, this.center.y));
+    const k = this.k * dpr;
+    const cx = cw / 2, cy = ch / 2;
+    const C = this.center;
     const toMap = (v: Vec2) => {
-      const dx = v.x - s.map.size / 2, dy = v.y - s.map.size / 2;
+      const dx = v.x - C.x, dy = v.y - C.y;
       return { x: cx + (dx * Math.cos(ROT) - dy * Math.sin(ROT)) * k, y: cy + (dx * Math.sin(ROT) + dy * Math.cos(ROT)) * k };
     };
-    g.clearRect(0, 0, S, S);
+    g.clearRect(0, 0, cw, ch);
     g.save();
     g.translate(cx, cy);
     g.rotate(ROT);
-    g.drawImage(base, (-s.map.size / 2) * k, (-s.map.size / 2) * k, s.map.size * k, s.map.size * k);
+    g.drawImage(base, -C.x * k, -C.y * k, s.map.size * k, s.map.size * k);
     g.restore();
     // district and landmark labels
     g.font = `${Math.round(10 * dpr)}px system-ui`;
@@ -234,6 +323,6 @@ export class CityMap {
     g.font = `bold ${Math.round(13 * dpr)}px system-ui`;
     g.fillStyle = '#fff';
     g.textAlign = 'left';
-    g.fillText(CITY_NAME.toUpperCase(), 10 * dpr, 20 * dpr);
+    g.fillText(CITY_NAME.toUpperCase(), Math.max(14, insetLeft()) * dpr, 24 * dpr);
   }
 }

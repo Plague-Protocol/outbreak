@@ -165,8 +165,15 @@
   #store-hand { font-size: 13px; opacity: .8; }
   #store .close { padding: 11px 22px; border: 1px solid #aaa; background: none; color: #ddd; border-radius: 6px; font-size: 14px; }
   /* the full map */
-  #map-screen { background: rgba(4,6,9,.94); z-index: 9; gap: 6px; }
-  #map-screen p { margin: 0; font-size: 12px; opacity: .6; }
+  #map-screen { background: rgba(4,6,9,.94); z-index: 9; padding: 0; touch-action: none; }
+  #fullmap { position: absolute; inset: 0; width: 100%; height: 100%; }
+  #map-screen p { position: absolute; bottom: calc(env(safe-area-inset-bottom, 0px) + 8px); left: 0; right: 0; margin: 0;
+    font-size: 12px; opacity: .6; pointer-events: none; text-shadow: 0 1px 3px #000; }
+  #map-tools { position: absolute; right: max(12px, env(safe-area-inset-right, 0px)); top: calc(env(safe-area-inset-top, 0px) + 10px);
+    display: flex; flex-direction: column; gap: 10px; }
+  #map-tools button { width: 46px; height: 46px; border-radius: 50%; border: 1px solid rgba(255,255,255,.35); background: rgba(20,22,26,.8);
+    color: #eee; font-size: 22px; line-height: 1; padding: 0; }
+  #map-tools #map-close { font-size: 18px; }
   /* phones play sideways: held upright, the game waits behind this */
   #rotate { z-index: 20; background: #06080c; display: none; }
   #rotate .phone { width: 46px; height: 80px; border: 3px solid #ddd; border-radius: 9px; animation: turn 2.2s ease-in-out infinite; }
@@ -193,11 +200,11 @@
     #toast { top: 60px; }
     /* thumb cluster, bottom right: fire in the corner, the rest in an arc around it */
     #btn-fire { width: 76px; height: 76px; right: calc(var(--r) + 8px); bottom: calc(var(--b) + 8px); font-size: 13px; }
-    #btn-reload { width: 44px; height: 44px; right: calc(var(--r) + 24px); bottom: calc(var(--b) + 96px); font-size: 16px; }
-    #btn-swap { width: 58px; height: 58px; right: calc(var(--r) + 80px); bottom: calc(var(--b) + 88px); font-size: 9px; }
+    #btn-reload { width: 44px; height: 44px; right: calc(var(--r) + 24px); bottom: calc(var(--b) + 104px); font-size: 16px; }
+    #btn-swap { width: 58px; height: 58px; right: calc(var(--r) + 88px); bottom: calc(var(--b) + 100px); font-size: 9px; }
     #btn-swap b { font-size: 12px; }
-    #btn-use { width: 62px; height: 62px; right: calc(var(--r) + 96px); bottom: calc(var(--b) + 12px); font-size: 10px; }
-    #btn-throw { width: 50px; height: 50px; right: calc(var(--r) + 170px); bottom: calc(var(--b) + 18px); font-size: 8px; }
+    #btn-use { width: 62px; height: 62px; right: calc(var(--r) + 104px); bottom: calc(var(--b) + 12px); font-size: 10px; }
+    #btn-throw { width: 50px; height: 50px; right: calc(var(--r) + 186px); bottom: calc(var(--b) + 18px); font-size: 8px; }
     #btn-throw b { font-size: 12px; }
     #subs { bottom: calc(var(--b) + 6px); left: 42%; width: min(36vw, 400px); }
     #title small { padding: 0 var(--r) 0 var(--l); }
@@ -246,7 +253,9 @@
   <div id="store-list"></div>
   <footer><span id="store-hand"></span><button class="close" id="store-close">Leave store</button></footer>
 </div>
-<div id="map-screen" class="screen"><canvas id="fullmap"></canvas><p>Tap anywhere or press M to close</p></div>
+<div id="map-screen" class="screen"><canvas id="fullmap"></canvas>
+  <div id="map-tools"><button id="map-close" aria-label="Close map">&#10005;</button><button id="map-in" aria-label="Zoom in">+</button><button id="map-out" aria-label="Zoom out">&minus;</button></div>
+  <p>Drag to move &middot; pinch or +/&minus; to zoom &middot; tap to close</p></div>
 <div id="title" class="screen">
   <h1>OUTBREAK</h1>
   <p>Day one &middot; Port Halden</p>
