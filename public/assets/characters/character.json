@@ -1,0 +1,75 @@
+{
+  "height": 376.469,
+  "clips": {
+    "Idle": {
+      "duration": 2.5,
+      "loop": true,
+      "groundSpeed": 0
+    },
+    "Walk": {
+      "duration": 1.333,
+      "loop": true,
+      "groundSpeed": 127.968
+    },
+    "Jog": {
+      "duration": 0.933,
+      "loop": true,
+      "groundSpeed": 359.918
+    },
+    "Sprint": {
+      "duration": 0.667,
+      "loop": true,
+      "groundSpeed": 489.738
+    },
+    "Death": {
+      "duration": 2.4,
+      "loop": false,
+      "groundSpeed": 0
+    },
+    "Hit": {
+      "duration": 0.333,
+      "loop": false,
+      "groundSpeed": 0
+    },
+    "Interact": {
+      "duration": 2,
+      "loop": false,
+      "groundSpeed": 0
+    },
+    "Kneel": {
+      "duration": 5.2,
+      "loop": true,
+      "groundSpeed": 0
+    },
+    "Talk": {
+      "duration": 2.933,
+      "loop": true,
+      "groundSpeed": 0
+    },
+    "Phone": {
+      "duration": 2.933,
+      "loop": true,
+      "groundSpeed": 0
+    },
+    "ZIdle": {
+      "duration": 1.333,
+      "loop": true,
+      "groundSpeed": 0
+    },
+    "ZWalk": {
+      "duration": 1.333,
+      "loop": true,
+      "groundSpeed": 122.152
+    },
+    "ZAttack": {
+      "duration": 1.8,
+      "loop": false,
+      "groundSpeed": 0
+    },
+    "ZRise": {
+      "duration": 1.533,
+      "loop": false,
+      "groundSpeed": 0
+    }
+  }
+}
