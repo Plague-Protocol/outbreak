@@ -1,7 +1,7 @@
-import { buy, currentTask, interactionFor, playerVehicle, requiredDone, type GameState } from '../core/state';
+import { currentTask, interactionFor, isGun, playerVehicle, requiredDone, type GameState } from '../core/state';
 import { ending, objectiveFor, SAFEHOUSE_LABEL, shortName } from '../core/story';
-import { PLAYER_HEALTH, STORE_PRICES, VEHICLES, WEAPONS } from '../core/config';
-import type { Interaction, StoreItem, TaskId } from '../core/types';
+import { PLAYER_HEALTH, VEHICLES, WEAPON_NAMES } from '../core/config';
+import type { Interaction, TaskId } from '../core/types';
 import type { GameView } from '../render/view';
 
 const $ = <T extends HTMLElement>(id: string) => document.getElementById(id) as T;
@@ -22,19 +22,10 @@ function useLabel(it: Interaction | null): string | null {
     case 'exit': return 'GET OUT';
     case 'enter': return 'GET IN';
     case 'crate': return 'SEARCH';
-    case 'store': return 'SHOP';
+    case 'store': return 'ENTER';
     case 'task': return TASK_VERB[it.taskId];
   }
 }
-
-const STORE_ITEMS: Array<{ item: StoreItem; name: string; note: string }> = [
-  { item: 'pistol-ammo', name: 'Pistol ammo', note: `${WEAPONS.pistol.ammoPack} rounds` },
-  { item: 'shotgun', name: 'Shotgun', note: 'Close range, wide spread' },
-  { item: 'shotgun-ammo', name: 'Shotgun shells', note: `${WEAPONS.shotgun.ammoPack} shells` },
-  { item: 'rifle', name: 'Assault rifle', note: 'Fully automatic, long range' },
-  { item: 'rifle-ammo', name: 'Rifle ammo', note: `${WEAPONS.rifle.ammoPack} rounds` },
-  { item: 'medkit', name: 'Medkit', note: 'Heals half your health' },
-];
 
 export class Hud {
   private timer = $('timer');
@@ -54,20 +45,17 @@ export class Hud {
   private useBtn = $('btn-use');
   private ammo = $('ammo');
   private weaponName = $('weapon-name');
-  private storeEl = $('store');
+  private fireBtn = $('btn-fire');
+  private reloadBtn = $('btn-reload');
   private toastTimer = 0;
   private hurtTimer = 0;
   private lastTimer = '';
   private lastTask = '';
-  private storeState: GameState | null = null;
-  private onStoreClose: () => void = () => {};
 
   constructor(handlers: { retry: () => void; newNight: () => void }) {
     $('retry').addEventListener('click', handlers.retry);
     $('new-night').addEventListener('click', handlers.newNight);
-    $('store-close').addEventListener('click', () => this.closeStore());
     window.addEventListener('keydown', (e) => {
-      if (this.storeEl.style.display === 'flex' && (e.code === 'Escape' || e.code === 'KeyE')) { this.closeStore(); return; }
       if (this.endScreen.style.display !== 'flex') return;
       if (e.code === 'Enter' || e.code === 'Space') handlers.retry();
       if (e.code === 'KeyN') handlers.newNight();
@@ -76,7 +64,6 @@ export class Hud {
 
   reset(): void {
     this.endScreen.style.display = 'none';
-    this.storeEl.style.display = 'none';
     this.lastTimer = this.lastTask = '';
   }
 
@@ -103,45 +90,6 @@ export class Hud {
     this.toastEl.classList.add('on');
     clearTimeout(this.toastTimer);
     this.toastTimer = window.setTimeout(() => this.toastEl.classList.remove('on'), 1800);
-  }
-
-  get storeOpen(): boolean {
-    return this.storeEl.style.display === 'flex';
-  }
-
-  openStore(s: GameState, onClose: () => void): void {
-    this.storeState = s;
-    this.onStoreClose = onClose;
-    this.renderStore();
-    this.storeEl.style.display = 'flex';
-  }
-
-  private closeStore(): void {
-    if (!this.storeOpen) return;
-    this.storeEl.style.display = 'none';
-    this.onStoreClose();
-  }
-
-  private renderStore(): void {
-    const s = this.storeState;
-    if (!s) return;
-    $('store-cash').textContent = `You have $${s.funds}`;
-    const list = $('store-items');
-    list.innerHTML = '';
-    for (const { item, name, note } of STORE_ITEMS) {
-      const owned = (item === 'shotgun' || item === 'rifle') && s.arsenal.owned.includes(item);
-      const price = STORE_PRICES[item];
-      const li = document.createElement('li');
-      li.innerHTML = `<span>${name}<small>${owned ? 'Owned' : note}</small></span>`;
-      const b = document.createElement('button');
-      b.textContent = `$${price}`;
-      b.disabled = owned || s.funds < price;
-      b.addEventListener('click', () => {
-        if (buy(s, item)) { this.toast(`Bought: ${name}`); this.renderStore(); }
-      });
-      li.appendChild(b);
-      list.appendChild(li);
-    }
   }
 
   update(s: GameState, view: GameView): void {
@@ -172,8 +120,12 @@ export class Hud {
     // weapon and contextual Use button
     const a = s.arsenal;
     if (a.weapon) {
-      this.ammo.textContent = a.reloadT > 0 ? '...' : `${a.mag[a.weapon]}/${a.ammo[a.weapon]}`;
-      this.weaponName.textContent = WEAPONS[a.weapon].name;
+      const gun = isGun(a.weapon) ? a.weapon : null;
+      this.ammo.textContent = !gun ? 'MELEE' : a.reloadT > 0 ? '...' : `${a.mag[gun]}/${a.ammo[gun]}`;
+      this.weaponName.textContent = WEAPON_NAMES[a.weapon];
+      const fire = gun ? 'FIRE' : 'SWING';
+      if (this.fireBtn.textContent !== fire) this.fireBtn.textContent = fire;
+      this.reloadBtn.style.visibility = gun ? 'visible' : 'hidden';
     }
     const use = useLabel(interactionFor(s));
     this.useBtn.style.display = use ? 'flex' : 'none';

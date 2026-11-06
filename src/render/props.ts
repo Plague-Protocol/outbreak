@@ -1,11 +1,12 @@
 import {
-  AdditiveBlending, BoxGeometry, CanvasTexture, Color, ConeGeometry, DoubleSide, Group, InstancedMesh, Mesh,
+  AdditiveBlending, BoxGeometry, type Material, CanvasTexture, Color, ConeGeometry, DoubleSide, Group, InstancedMesh, Mesh,
   MeshBasicMaterial, MeshLambertMaterial, Object3D, PlaneGeometry, PointLight, Scene, Sprite, SpriteMaterial, SRGBColorSpace,
   Vector3,
 } from 'three';
 import { MeshBuilder } from './mesh';
+import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
 import { VEHICLES } from '../core/config';
-import type { PickupKind, Vehicle, VehicleKind, WeaponKind } from '../core/types';
+import type { GunKind, MeleeKind, PickupKind, Store, Vehicle, VehicleKind, WeaponKind } from '../core/types';
 
 const PAINT = [0xd9d4c7, 0x9aa1a8, 0x7a1f1f, 0x1f3a5c, 0x1b1d20, 0x2f4a33, 0xc9a227, 0x5a2a5a];
 
@@ -65,7 +66,7 @@ const STEEL = 0x4a4f57, STEEL_TOP = 0x6a7079, POLY = 0x2c2d30, WOOD = 0x7a4a26, 
  * barrel along +x, the top along +y, and the middle of the grip at the origin so the hand holds it.
  * `userData.muzzle` is the muzzle point in the same space.
  */
-export function gunMesh(kind: WeaponKind): Mesh {
+export function gunMesh(kind: GunKind): Mesh {
   const b = new MeshBuilder();
   let muzzle: Vector3;
   let m: number;
@@ -117,6 +118,38 @@ export function gunMesh(kind: WeaponKind): Mesh {
   return mesh;
 }
 
+/**
+ * Melee weapons, about 1.3x real size, built along +y (out of the thumb side of the fist) with the
+ * grip at the origin: held by the same hand frame as the guns.
+ */
+export function meleeMesh(kind: MeleeKind): Mesh {
+  const b = new MeshBuilder();
+  switch (kind) {
+    case 'baton': // a side-handle police baton
+      b.box(0, 0.42, 0, 0.07, 1.08, 0.07, 0x3a3b3f, 0x4a4b50);
+      b.box(0.11, 0.08, 0, 0.16, 0.06, 0.06, 0x3a3b3f);
+      break;
+    case 'bat': // tapered ash bat with a knob
+      b.box(0, -0.13, 0, 0.09, 0.04, 0.09, 0xb08a58);
+      b.box(0, 0.2, 0, 0.055, 0.62, 0.055, 0xc8a26a);
+      b.box(0, 0.7, 0, 0.08, 0.4, 0.08, 0xc8a26a);
+      b.box(0, 1.1, 0, 0.11, 0.42, 0.11, 0xd2ae78, 0xd8b682);
+      break;
+    case 'machete': // black grip, steel blade with a darker spine
+      b.box(0, 0.04, 0, 0.065, 0.34, 0.06, 0x1d1d1f);
+      b.box(0, 0.23, 0, 0.12, 0.03, 0.08, 0x2a2b2e);
+      b.box(0.015, 0.66, 0, 0.13, 0.84, 0.018, 0xc3c7cd, 0xd5d9de);
+      b.box(-0.045, 0.62, 0, 0.03, 0.76, 0.024, 0x6a6f76);
+      break;
+  }
+  return new Mesh(b.build(), new MeshLambertMaterial({ vertexColors: true, emissive: 0x0b0b0c }));
+}
+
+/** Whatever weapon it is, ready to put in a hand. */
+export function weaponMesh(kind: WeaponKind): Mesh {
+  return kind === 'baton' || kind === 'bat' || kind === 'machete' ? meleeMesh(kind) : gunMesh(kind);
+}
+
 /** A green ammo can with a carry handle and a brass stencil. */
 function ammoMesh(): Mesh {
   const b = new MeshBuilder()
@@ -130,8 +163,11 @@ function ammoMesh(): Mesh {
 /** A pickup lying where someone dropped it: a gun on its side or an ammo can, with a glint. */
 export function pickupMesh(kind: PickupKind, yaw: number): Group {
   const g = new Group();
-  const item = kind === 'ammo' ? ammoMesh() : gunMesh(kind);
-  if (kind !== 'ammo') {
+  const item = kind === 'ammo' ? ammoMesh() : weaponMesh(kind);
+  if (kind === 'baton' || kind === 'bat' || kind === 'machete') {
+    item.rotation.set(0, 0, Math.PI / 2); // lying along the ground
+    item.position.y = 0.07;
+  } else if (kind !== 'ammo') {
     item.rotation.set(Math.PI / 2, 0, 0); // on its side, flat on the ground
     item.position.y = 0.05;
   }
@@ -275,20 +311,118 @@ function textTexture(text: string, color: string, w = 256, h = 96, font = 'bold 
   return new CanvasTexture(c);
 }
 
-/** The gun store: a counter, a back wall, and a neon sign on a pole. */
-export function storeMesh(): Group {
+/**
+ * A weapon store: a brick shop with barred, lit display windows full of guns, a glass door, an
+ * awning and a neon WEAPONS sign. Built facing +z, centred on its footprint, base at y = 0.
+ * Walls use `solid` (the city's material) so the player's x-ray silhouette works behind it.
+ */
+export function storefrontMesh(store: Store, solid: Material): Group {
+  const f = store.front;
+  const alongX = f.facing.y !== 0; // frontage runs along world x
+  const W = alongX ? f.w : f.h, D = alongX ? f.h : f.w, H = 5;
+  const zf = D / 2; // the facade plane
   const g = new Group();
-  const b = new MeshBuilder()
-    .box(0, 0.55, 0, 2.4, 1.1, 0.8, 0x2c2622, 0x3a322b)
-    .box(0, 1.6, -0.9, 3, 3.2, 0.2, 0x1e1b19)
-    .box(-1.6, 2.6, -0.6, 0.15, 5.2, 0.15, 0x333333)
-    .box(-0.6, 1.25, 0.1, 0.5, 0.15, 0.25, 0x22252a)
-    .box(0.5, 1.22, 0.1, 0.7, 0.1, 0.2, 0x22252a);
-  g.add(new Mesh(b.build(), new MeshLambertMaterial({ vertexColors: true })));
-  const sign = new Mesh(new PlaneGeometry(3.2, 1.2), new MeshBasicMaterial({ map: textTexture('GUNS', '#ff3b3b'), transparent: true, side: DoubleSide }));
-  sign.position.set(-1.6, 5.3, -0.45);
-  g.add(sign);
+  const walls = new MeshBuilder()
+    .box(0, H / 2, 0, W, H, D, 0x4a352c, 0x2a2b2e) // brick
+    .box(0, H + 0.15, 0, W + 0.2, 0.3, D + 0.2, 0x26272a) // parapet
+    .box(0, 3.55, zf + 0.6, W - 0.3, 0.14, 1.2, 0x7a1c1c, 0x8c2422) // awning
+    .box(0, 4.35, zf + 0.12, W - 1.2, 1.1, 0.2, 0x1b1c1f) // sign board
+    .box(0, 0.08, zf + 0.7, 2.2, 0.03, 1.2, 0x3a2a22); // door mat
+  for (const side of [-1, 1]) { // security bars over the windows
+    for (let k = 0; k < 7; k++) walls.box(side * (1.45 + k * 0.42), 1.9, zf + 0.09, 0.05, 2.3, 0.05, 0x2a2b2e);
+    walls.box(side * (1.45 + 1.26), 3.05, zf + 0.09, 2.7, 0.06, 0.05, 0x2a2b2e);
+  }
+  walls.box(-1.05, 1.6, zf + 0.05, 0.12, 3.2, 0.12, 0x2a2b2e).box(1.05, 1.6, zf + 0.05, 0.12, 3.2, 0.12, 0x2a2b2e); // door frame
+  const yaw = Math.atan2(f.facing.x, f.facing.y);
+  // a rooftop sign turned toward the (fixed-yaw) street camera, so every store reads from afar
+  const roofYaw = Math.PI / 4 - yaw;
+  for (const o of [-2.2, 2.2]) walls.box(o * Math.cos(roofYaw), H + 0.6, -o * Math.sin(roofYaw), 0.12, 1.2, 0.12, 0x2a2b2e); // its posts
+  g.add(new Mesh(walls.build(), solid));
+  // everything lit (the windows with the glass door between them, the front sign, the rooftop
+  // sign) shares one texture atlas, so it is one draw: signs in the top band, windows below
+  const windows = vBand(new PlaneGeometry(W - 1.2, 2.8), 0, ATLAS_SPLIT).translate(0, 1.75, zf + 0.03);
+  const front = vBand(new PlaneGeometry(W - 1.4, 1.0), ATLAS_SPLIT, 1).translate(0, 4.35, zf + 0.23);
+  const roof = vBand(new PlaneGeometry(6, 1.3), ATLAS_SPLIT, 1).rotateY(roofYaw).translate(0, H + 1.5, 0);
+  g.add(new Mesh(mergeGeometries([windows, front, roof])!, new MeshBasicMaterial({ map: storeAtlas(store.name), transparent: true })));
+  g.position.set(f.x + f.w / 2, 0.15, f.y + f.h / 2);
+  g.rotation.y = yaw;
   return g;
+}
+
+const ATLAS_SPLIT = 176 / 272; // v below this is the window display, above it the sign
+
+/** Squeeze a plane's v coordinates into [v0, v1] of the atlas. */
+function vBand<T extends PlaneGeometry>(geo: T, v0: number, v1: number): T {
+  const uv = geo.getAttribute('uv');
+  for (let i = 0; i < uv.count; i++) uv.setY(i, v0 + uv.getY(i) * (v1 - v0));
+  return geo;
+}
+
+/** One texture for a store: the neon sign (top 96 px) over the window display (176 px). */
+function storeAtlas(name: string): CanvasTexture {
+  const c = document.createElement('canvas');
+  c.width = 512;
+  c.height = 272;
+  const x = c.getContext('2d')!;
+  x.drawImage(signCanvas(name), 0, 0);
+  x.drawImage(displayCanvas(), 0, 96);
+  const t = new CanvasTexture(c);
+  t.colorSpace = SRGBColorSpace;
+  return t;
+}
+
+/** The display windows: a warm-lit pegboard of rifles, shotguns, pistols and price tags, with a
+ * dark gap where the door goes. */
+function displayCanvas(): HTMLCanvasElement {
+  const c = document.createElement('canvas');
+  c.width = 512;
+  c.height = 176;
+  const x = c.getContext('2d')!;
+  // the brick wall below the sills, then the lit windows
+  x.fillStyle = '#3a2a22';
+  x.fillRect(0, 0, 512, 176);
+  const grd = x.createLinearGradient(0, 0, 0, 132);
+  grd.addColorStop(0, '#ffe2a8');
+  grd.addColorStop(1, '#c48a4a');
+  x.fillStyle = grd;
+  x.fillRect(8, 6, 192, 126);
+  x.fillRect(312, 6, 192, 126);
+  x.fillStyle = '#ffd9a0';
+  x.fillRect(208, 6, 96, 154); // the glass door, lit from inside
+  x.fillStyle = '#8a6a44';
+  x.fillRect(252, 6, 8, 154); // its two leaves
+  x.fillRect(270, 80, 14, 4); // handle
+  const gun = (gx: number, gy: number, len: number, kind: number) => {
+    x.fillStyle = '#2a211c';
+    x.fillRect(gx, gy, len, 7); // barrel and body
+    x.fillRect(gx + len * 0.55, gy + 7, 7, 14); // grip / magazine
+    if (kind > 0) x.fillRect(gx - len * 0.28, gy + 2, len * 0.3, 11); // stock
+    x.fillStyle = '#f4f0e6';
+    x.fillRect(gx + len * 0.2, gy + 26, 18, 9); // price tag
+  };
+  for (const ox of [0, 304]) {
+    for (let r = 0; r < 3; r++) for (let k = 0; k < 2; k++) gun(ox + 40 + k * 100, 18 + r * 46, r === 2 ? 34 : 64, r === 2 ? 0 : 1);
+  }
+  return c;
+}
+
+function signCanvas(name: string): HTMLCanvasElement {
+  const c = document.createElement('canvas');
+  c.width = 512;
+  c.height = 96;
+  const x = c.getContext('2d')!;
+  x.textAlign = 'center';
+  x.textBaseline = 'middle';
+  x.shadowColor = '#ff3b3b';
+  x.shadowBlur = 16;
+  x.fillStyle = '#ff4b3b';
+  x.font = 'bold 50px system-ui, sans-serif';
+  x.fillText('WEAPONS', 256, 38);
+  x.shadowBlur = 0;
+  x.fillStyle = '#ffd9a0';
+  x.font = '20px system-ui, sans-serif';
+  x.fillText(name.toUpperCase(), 256, 78);
+  return c;
 }
 
 /** The evac point: a helipad ringed with sandbags and floodlights, and the helicopter overhead. */
@@ -432,6 +566,7 @@ export class Effects {
       this.tracerLife[i]! -= dt;
       if (this.tracerLife[i]! <= 0) { this.hide(this.tracers, i); this.tracers.instanceMatrix.needsUpdate = true; }
     }
+    this.tracers.visible = this.tracerLife.some((l) => l > 0); // nothing flying: no draw
     if (this.flashLife > 0) { this.flashLife -= dt; if (this.flashLife <= 0) this.flash.intensity = 0; }
     this.parts = this.parts.filter((q) => (q.life -= dt) > 0);
     this.parts.forEach((q, i) => {
@@ -446,6 +581,7 @@ export class Effects {
       this.particles.setColorAt(i, this.col.setHex(q.color));
     });
     this.particles.count = this.parts.length;
+    this.particles.visible = this.parts.length > 0;
     this.particles.instanceMatrix.needsUpdate = true;
     if (this.particles.instanceColor) this.particles.instanceColor.needsUpdate = true;
   }

@@ -6,7 +6,7 @@ export interface Vec2 {
 export type ObstacleKind =
   | 'building' | 'tower' | 'house' | 'warehouse' | 'shop' | 'container'
   | 'car' | 'wreck' | 'dumpster' | 'barrel' | 'barricade' | 'lamp' | 'tree' | 'deadtree' | 'fence' | 'pump' | 'bench'
-  | 'water';
+  | 'water' | 'store';
 
 export type District = 'downtown' | 'residential' | 'park' | 'industrial' | 'outskirts' | 'water';
 
@@ -47,6 +47,16 @@ export interface Building {
   tone: number; // visual only, 0..1
 }
 
+/** A weapon store building with its door on the street. */
+export interface Storefront {
+  x: number; // the building's footprint (also an obstacle in `buildings`)
+  y: number;
+  w: number;
+  h: number;
+  door: Vec2; // just outside the entrance, on the street
+  facing: Vec2; // unit vector out of the front of the building
+}
+
 export interface MapData {
   size: number;
   cols: number; // nav grid is cols x cols, 1 unit per cell
@@ -56,6 +66,7 @@ export interface MapData {
   blocks: Block[];
   decor: Decor[];
   parking: ParkingSpot[]; // kerbside spots where drivable vehicles start
+  storefronts: Storefront[];
   /** Spatial hash of obstacle indices, `gridCell` units per cell, `gridN` x `gridN` cells. */
   grid: number[][];
   gridCell: number;
@@ -115,7 +126,10 @@ export interface Vehicle {
 
 export type Loot = 'medkit' | 'supplies' | 'ammo' | 'empty';
 
-export type WeaponKind = 'pistol' | 'shotgun' | 'rifle';
+export type GunKind = 'pistol' | 'shotgun' | 'rifle';
+export type MeleeKind = 'baton' | 'bat' | 'machete';
+export type WeaponKind = GunKind | MeleeKind;
+export type UpgradeKind = 'damage' | 'mag' | 'reload';
 
 export type PickupKind = WeaponKind | 'ammo';
 
@@ -127,11 +141,18 @@ export interface Pickup {
   taken: boolean;
 }
 
-export type StoreItem = 'pistol-ammo' | 'shotgun' | 'shotgun-ammo' | 'rifle' | 'rifle-ammo' | 'medkit';
+/** Something on sale at a weapon store. */
+export type StoreItem =
+  | { kind: 'weapon'; weapon: WeaponKind }
+  | { kind: 'ammo'; weapon: GunKind }
+  | { kind: 'upgrade'; weapon: WeaponKind; upgrade: UpgradeKind }
+  | { kind: 'medkit' };
 
 export interface Store {
-  pos: Vec2; // the counter, on the pavement
+  id: number;
   name: string;
+  pos: Vec2; // the door, on the street: walk in here
+  front: Storefront;
 }
 
 export interface Crate {
@@ -147,7 +168,7 @@ export type Interaction =
   | { kind: 'enter'; vehicleId: number }
   | { kind: 'task'; taskId: TaskId }
   | { kind: 'crate'; crateId: number }
-  | { kind: 'store' };
+  | { kind: 'store'; storeId: number };
 
 export type Phase = 'playing' | 'won' | 'lost';
 export type LossReason = 'time' | 'caught';
@@ -161,13 +182,15 @@ export type GameEvent =
   | { type: 'zombie-alert'; id: number }
   | { type: 'zombie-killed'; id: number }
   | { type: 'player-hit'; damage: number; by: number }
-  | { type: 'shot'; weapon: WeaponKind; from: Vec2; to: Vec2; hit: number | null }
+  | { type: 'shot'; weapon: GunKind; from: Vec2; to: Vec2; hit: number | null }
   | { type: 'zombie-hurt'; id: number }
-  | { type: 'reload'; weapon: WeaponKind }
-  | { type: 'empty'; weapon: WeaponKind }
+  | { type: 'swing'; weapon: MeleeKind; hits: number }
+  | { type: 'reload'; weapon: GunKind }
+  | { type: 'empty'; weapon: GunKind }
   | { type: 'pickup'; kind: PickupKind; amount: number }
   | { type: 'purchase'; item: StoreItem }
-  | { type: 'store-open' }
+  | { type: 'store-open'; id: number }
+  | { type: 'equip'; weapon: WeaponKind }
   | { type: 'healed'; amount: number }
   | { type: 'task-started'; id: TaskId }
   | { type: 'crate-opened'; id: number; loot: Loot }

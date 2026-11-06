@@ -5,8 +5,9 @@ import {
   RUN_OVER_SPEED, RUNNER_SIGHT, RUNNER_SPEED, SAFEHOUSE_RADIUS, SPAWNS_BY_TIER, SPEED_BOOST, TASK_HOLD_SECONDS,
   TASK_RADIUS, TIER_THRESHOLDS, USE_RADIUS, VEHICLES, WALKER_SIGHT_BY_TIER, WALKER_SPEED_BY_TIER, WAVE_SPAWN_MAX_DIST,
   ZOMBIE_ACTIVE_RADIUS, ZOMBIE_CAP, ZOMBIE_RADIUS, ZOMBIE_SPAWN_MIN_DIST, ZOMBIES_PER_BLOCK,
-  AIM_CONE, ALERT_SECONDS, KILL_REWARD, PICKUP_RADIUS, STAGGER_SECONDS, START_AMMO, START_FUNDS, STORE_PRICES, WEAPONS,
-  ZOMBIE_HEALTH,
+  AIM_CONE, ALERT_SECONDS, AMMO_PRICES, GUNS, KILL_REWARD, MEDKIT_PRICE, MELEE, MELEE_KNOCKBACK, PICKUP_RADIUS,
+  SAFE_AFTER, STAGGER_SECONDS, START_AMMO, START_FUNDS, STORE_DOOR_RADIUS, UPGRADE_BASE, UPGRADE_EFFECT, UPGRADE_FACTOR,
+  UPGRADE_LEVELS, WEAPON_PRICES, ZOMBIE_HEALTH,
 } from './config';
 import { nearbyObstacles } from './collision';
 import { lineClear, resolve } from './collision';
@@ -14,17 +15,42 @@ import { generateLevel, type Level } from './level';
 import { cellOf, distanceField, UNREACHABLE } from './map';
 import { createRng, next, pick, range, type Rng } from './rng';
 import type {
-  Crate, GameEvent, Input, Interaction, LossReason, MapData, Phase, Pickup, Store, StoreItem, Task, TaskId, Vec2,
-  Vehicle, WeaponKind, Zombie, ZombieKind,
+  Crate, GameEvent, GunKind, Input, Interaction, LossReason, MapData, MeleeKind, Phase, Pickup, Store, StoreItem, Task,
+  TaskId, UpgradeKind, Vec2, Vehicle, WeaponKind, Zombie, ZombieKind,
 } from './types';
 
 export interface Arsenal {
   weapon: WeaponKind | null; // in hand
   owned: WeaponKind[];
-  mag: Record<WeaponKind, number>; // rounds in the magazine
-  ammo: Record<WeaponKind, number>; // spare rounds
+  mag: Record<GunKind, number>; // rounds in the magazine
+  ammo: Record<GunKind, number>; // spare rounds
+  /** Upgrade level bought for each weapon (0..UPGRADE_LEVELS). Melee weapons only take damage. */
+  upgrades: Record<WeaponKind, Record<UpgradeKind, number>>;
   fireCd: number;
   reloadT: number; // seconds left on a reload (0 = not reloading)
+  swing: number; // counts swings, so the renderer can alternate them
+}
+
+export const isMelee = (w: WeaponKind): w is MeleeKind => w in MELEE;
+export const isGun = (w: WeaponKind): w is GunKind => w in GUNS;
+
+const noUpgrades = () => ({ damage: 0, mag: 0, reload: 0 });
+
+/** A gun's numbers with its upgrades applied. */
+export function gunStats(a: Arsenal, w: GunKind) {
+  const base = GUNS[w], u = a.upgrades[w];
+  return {
+    ...base,
+    damage: base.damage * (1 + UPGRADE_EFFECT.damage * u.damage),
+    mag: Math.round(base.mag * (1 + UPGRADE_EFFECT.mag * u.mag)),
+    reload: base.reload * (1 - UPGRADE_EFFECT.reload * u.reload),
+  };
+}
+
+/** A melee weapon's numbers with its upgrades applied. */
+export function meleeStats(a: Arsenal, w: MeleeKind) {
+  const base = MELEE[w];
+  return { ...base, damage: base.damage * (1 + UPGRADE_EFFECT.damage * a.upgrades[w].damage) };
 }
 
 export interface GameState {
@@ -40,7 +66,11 @@ export interface GameState {
   player: { pos: Vec2; vel: Vec2; heading: number; health: number; invuln: number; vehicleId: number | null };
   arsenal: Arsenal;
   pickups: Pickup[];
-  store: Store;
+  stores: Store[];
+  /** The store whose doorway you are standing in after leaving it (no re-entry until you step out). */
+  storeLatch: number | null;
+  /** Grace after finishing an objective: zombies keep holding back while you step away. */
+  safeT: number;
   kills: number;
   /** Zombie that caught the player, if any (the renderer stages the ending around it). */
   killerId: number | null;
@@ -80,13 +110,16 @@ export function createGame(seed: number, level: Level = generateLevel(seed)): Ga
     player: { pos: { ...level.spawn }, vel: { x: 0, y: 0 }, heading: 0, health: PLAYER_HEALTH, invuln: 0, vehicleId: null },
     killerId: null,
     arsenal: {
-      weapon: 'pistol', owned: ['pistol'],
-      mag: { pistol: WEAPONS.pistol.mag, shotgun: 0, rifle: 0 },
+      weapon: 'pistol', owned: ['pistol', 'baton'],
+      mag: { pistol: GUNS.pistol.mag, shotgun: 0, rifle: 0 },
       ammo: { ...START_AMMO },
-      fireCd: 0, reloadT: 0,
+      upgrades: { pistol: noUpgrades(), shotgun: noUpgrades(), rifle: noUpgrades(), baton: noUpgrades(), bat: noUpgrades(), machete: noUpgrades() },
+      fireCd: 0, reloadT: 0, swing: 0,
     },
     pickups: level.pickups.map((p) => ({ ...p, pos: { ...p.pos } })),
-    store: { ...level.store, pos: { ...level.store.pos } },
+    stores: level.stores.map((st) => ({ ...st, pos: { ...st.pos } })),
+    storeLatch: null,
+    safeT: 0,
     kills: 0,
     zombies: [],
     vehicles: level.vehicles.map((v) => ({ ...v, pos: { ...v.pos } })),
@@ -120,6 +153,11 @@ export function currentTask(s: GameState): Task | null {
 
 function depsMet(s: GameState, t: Task): boolean {
   return t.requires.every((id) => s.tasks.some((x) => x.id === id && x.done));
+}
+
+/** Working an objective or talking to someone (or just finished): zombies hold back. */
+export function isBusy(s: GameState): boolean {
+  return s.hold.taskId !== null || s.safeT > 0;
 }
 
 export function playerVehicle(s: GameState): Vehicle | null {
@@ -260,6 +298,8 @@ export function step(s: GameState, input: Input, dt: number): GameState {
     s.player.heading = still.heading;
   }
 
+  enterStores(s);
+  s.safeT = Math.max(0, s.safeT - dt);
   refreshFlow(s);
   updateTasks(s, dt);
   if (s.phase !== 'playing') return s;
@@ -287,7 +327,8 @@ export function interactionFor(s: GameState): Interaction | null {
   const p = s.player.pos;
   const task = s.tasks.find((t) => !t.done && s.hold.taskId !== t.id && dist(t.pos, p) < TASK_RADIUS);
   if (task) return { kind: 'task', taskId: task.id };
-  if (dist(s.store.pos, p) < USE_RADIUS) return { kind: 'store' };
+  const store = s.stores.find((st) => dist(st.pos, p) < USE_RADIUS);
+  if (store) return { kind: 'store', storeId: store.id };
   const crate = s.crates.find((c) => !c.opened && dist(c.pos, p) < USE_RADIUS * 0.75);
   if (crate) return { kind: 'crate', crateId: crate.id };
   let best: Vehicle | null = null, bestD = 1.6;
@@ -322,7 +363,8 @@ function interact(s: GameState): void {
       break;
     }
     case 'store':
-      s.events.push({ type: 'store-open' });
+      s.storeLatch = it.storeId;
+      s.events.push({ type: 'store-open', id: it.storeId });
       break;
     case 'crate': {
       const c = s.crates.find((x) => x.id === it.crateId)!;
@@ -334,8 +376,8 @@ function interact(s: GameState): void {
         s.events.push({ type: 'healed', amount: s.player.health - before });
       } else if (c.loot === 'supplies') s.funds += 25;
       else if (c.loot === 'ammo') {
-        const w = s.arsenal.weapon ?? 'pistol';
-        const n = Math.ceil(WEAPONS[w].ammoPack / 2);
+        const w = ammoTarget(s);
+        const n = Math.ceil(GUNS[w].ammoPack / 2);
         s.arsenal.ammo[w] += n;
         s.events.push({ type: 'pickup', kind: 'ammo', amount: n });
       }
@@ -346,51 +388,113 @@ function interact(s: GameState): void {
 
 // ---------------------------------------------------------------- weapons, pickups and the store
 
+/** Which gun loose ammo goes to: the gun in hand, else the first gun you own. */
+function ammoTarget(s: GameState): GunKind {
+  const a = s.arsenal;
+  if (a.weapon && isGun(a.weapon)) return a.weapon;
+  return (a.owned.find(isGun) as GunKind | undefined) ?? 'pistol';
+}
+
 function takePickups(s: GameState): void {
   const a = s.arsenal;
   for (const pk of s.pickups) {
     if (pk.taken || dist(pk.pos, s.player.pos) > PICKUP_RADIUS) continue;
     pk.taken = true;
     if (pk.kind === 'ammo') {
-      // ammo for whatever is in hand (or the pistol)
-      const w = a.weapon ?? 'pistol';
-      a.ammo[w] += WEAPONS[w].ammoPack;
-      s.events.push({ type: 'pickup', kind: 'ammo', amount: WEAPONS[w].ammoPack });
+      const w = ammoTarget(s);
+      a.ammo[w] += GUNS[w].ammoPack;
+      s.events.push({ type: 'pickup', kind: 'ammo', amount: GUNS[w].ammoPack });
     } else {
       giveWeapon(s, pk.kind);
-      s.events.push({ type: 'pickup', kind: pk.kind, amount: WEAPONS[pk.kind].mag });
+      s.events.push({ type: 'pickup', kind: pk.kind, amount: isGun(pk.kind) ? GUNS[pk.kind].mag : 0 });
     }
   }
 }
 
 function giveWeapon(s: GameState, w: WeaponKind): void {
   const a = s.arsenal;
-  if (a.owned.includes(w)) {
-    a.ammo[w] += WEAPONS[w].ammoPack;
-  } else {
-    a.owned.push(w);
-    a.mag[w] = WEAPONS[w].mag;
-    a.ammo[w] += WEAPONS[w].ammoPack;
+  if (isGun(w)) {
+    if (!a.owned.includes(w)) a.mag[w] = gunStats(a, w).mag;
+    a.ammo[w] += GUNS[w].ammoPack;
   }
+  if (!a.owned.includes(w)) a.owned.push(w);
   a.weapon = w; // pick it up, hold it
   a.reloadT = 0;
 }
 
-/** Buy from the gun store. Pure: returns false (and changes nothing) if you cannot afford it. */
+/** Walk through a store's doorway to go in. Leaving puts you back in the doorway, so the store
+ * stays shut until you step out of it. */
+function enterStores(s: GameState): void {
+  if (s.player.vehicleId !== null) return;
+  const p = s.player.pos;
+  if (s.storeLatch !== null) {
+    const st = s.stores.find((x) => x.id === s.storeLatch);
+    if (!st || dist(st.pos, p) > STORE_DOOR_RADIUS + 1.5) s.storeLatch = null;
+    return;
+  }
+  for (const st of s.stores) {
+    if (dist(st.pos, p) > STORE_DOOR_RADIUS) continue;
+    // only when heading in, not when walking past along the pavement
+    const into = -(s.player.vel.x * st.front.facing.x + s.player.vel.y * st.front.facing.y);
+    if (into < 0.5) continue;
+    s.storeLatch = st.id;
+    s.events.push({ type: 'store-open', id: st.id });
+    return;
+  }
+}
+
+/** Price of a store item right now, or null if it is not for sale to you (owned, maxed out). */
+export function priceOf(s: GameState, item: StoreItem): number | null {
+  const a = s.arsenal;
+  switch (item.kind) {
+    case 'weapon': return a.owned.includes(item.weapon) ? null : WEAPON_PRICES[item.weapon];
+    case 'ammo': return a.owned.includes(item.weapon) ? AMMO_PRICES[item.weapon] : null;
+    case 'medkit': return MEDKIT_PRICE;
+    case 'upgrade': {
+      if (!a.owned.includes(item.weapon)) return null;
+      if (isMelee(item.weapon) && item.upgrade !== 'damage') return null;
+      const level = a.upgrades[item.weapon][item.upgrade];
+      if (level >= UPGRADE_LEVELS) return null;
+      return Math.round(UPGRADE_BASE[item.weapon] * UPGRADE_FACTOR[item.upgrade] * (level + 1));
+    }
+  }
+}
+
+/** Buy from a weapon store. Pure: returns false (and changes nothing) if it is not for sale or you
+ * cannot afford it. */
 export function buy(s: GameState, item: StoreItem): boolean {
-  const price = STORE_PRICES[item];
-  if (s.funds < price) return false;
-  if ((item === 'shotgun' || item === 'rifle') && s.arsenal.owned.includes(item)) return false;
+  const price = priceOf(s, item);
+  if (price === null || s.funds < price) return false;
   s.funds -= price;
   const a = s.arsenal;
-  switch (item) {
-    case 'pistol-ammo': a.ammo.pistol += WEAPONS.pistol.ammoPack; break;
-    case 'shotgun-ammo': a.ammo.shotgun += WEAPONS.shotgun.ammoPack; break;
-    case 'rifle-ammo': a.ammo.rifle += WEAPONS.rifle.ammoPack; break;
-    case 'shotgun': case 'rifle': giveWeapon(s, item); break;
+  switch (item.kind) {
+    case 'weapon': giveWeapon(s, item.weapon); break;
+    case 'ammo': a.ammo[item.weapon] += GUNS[item.weapon].ammoPack; break;
     case 'medkit': s.player.health = Math.min(PLAYER_HEALTH, s.player.health + MEDKIT_HEAL); break;
+    case 'upgrade': {
+      a.upgrades[item.weapon][item.upgrade]++;
+      // a bigger magazine comes loaded
+      if (item.upgrade === 'mag' && isGun(item.weapon)) {
+        const w = item.weapon;
+        const take = Math.min(gunStats(a, w).mag - a.mag[w], a.ammo[w]);
+        a.mag[w] += Math.max(0, take);
+        a.ammo[w] -= Math.max(0, take);
+      }
+      break;
+    }
   }
   s.events.push({ type: 'purchase', item });
+  return true;
+}
+
+/** Take a weapon you own in hand (from the store's page or a weapon wheel). */
+export function equip(s: GameState, w: WeaponKind): boolean {
+  const a = s.arsenal;
+  if (!a.owned.includes(w) || a.weapon === w) return false;
+  a.weapon = w;
+  a.reloadT = 0;
+  a.fireCd = 0.25;
+  s.events.push({ type: 'equip', weapon: w });
   return true;
 }
 
@@ -411,12 +515,13 @@ function rayToWall(s: GameState, from: Vec2, dx: number, dy: number, range: numb
 
 /** Aim assist: the best zombie in front of you within range and in the open, if any. */
 export function aimTarget(s: GameState, w: WeaponKind): Zombie | null {
+  const range = isGun(w) ? GUNS[w].range : MELEE[w].range + 1.5; // melee turns you to face one in reach
   const p = s.player.pos;
   let best: Zombie | null = null, bestScore = Infinity;
   for (const z of s.zombies) {
     if (z.action === 'dead') continue;
     const dx = z.pos.x - p.x, dy = z.pos.y - p.y, d = Math.hypot(dx, dy);
-    if (d > WEAPONS[w].range || d < 1e-3) continue;
+    if (d > range || d < 1e-3) continue;
     const off = Math.abs(wrap(Math.atan2(dy, dx) - s.player.heading));
     if (off > AIM_CONE && d > 3) continue; // behind you, unless it is right on top of you
     if (rayToWall(s, p, dx / d, dy / d, d) < d) continue;
@@ -426,7 +531,7 @@ export function aimTarget(s: GameState, w: WeaponKind): Zombie | null {
   return best;
 }
 
-function hurtZombie(s: GameState, z: Zombie, damage: number, dirX: number, dirY: number): void {
+function hurtZombie(s: GameState, z: Zombie, damage: number, dirX: number, dirY: number, stagger = STAGGER_SECONDS, knock = 0.25): void {
   z.health -= damage;
   z.alertT = ALERT_SECONDS;
   if (z.health <= 0) {
@@ -440,17 +545,17 @@ function hurtZombie(s: GameState, z: Zombie, damage: number, dirX: number, dirY:
     return;
   }
   // a hit makes it flinch, and spoils a lunge
-  z.staggerT = STAGGER_SECONDS;
+  z.staggerT = stagger;
   if (z.action === 'attack') { z.action = 'chase'; z.cooldown = ATTACK_COOLDOWN * 0.5; }
-  z.pos.x += dirX * 0.25;
-  z.pos.y += dirY * 0.25;
+  z.pos.x += dirX * knock;
+  z.pos.y += dirY * knock;
   s.events.push({ type: 'zombie-hurt', id: z.id });
 }
 
-function startReload(s: GameState, w: WeaponKind): void {
+function startReload(s: GameState, w: GunKind): void {
   const a = s.arsenal;
-  if (a.reloadT > 0 || a.ammo[w] <= 0 || a.mag[w] >= WEAPONS[w].mag) return;
-  a.reloadT = WEAPONS[w].reload;
+  if (a.reloadT > 0 || a.ammo[w] <= 0 || a.mag[w] >= gunStats(a, w).mag) return;
+  a.reloadT = gunStats(a, w).reload;
   s.events.push({ type: 'reload', weapon: w });
 }
 
@@ -465,7 +570,8 @@ function updateWeapons(s: GameState, input: Input, dt: number): void {
   }
   const w = a.weapon;
   if (!w) return;
-  const spec = WEAPONS[w];
+  if (isMelee(w)) { swingMelee(s, w, input); return; }
+  const spec = gunStats(a, w);
   if (a.reloadT > 0) {
     a.reloadT -= dt;
     if (a.reloadT <= 0) {
@@ -511,10 +617,41 @@ function updateWeapons(s: GameState, input: Input, dt: number): void {
     if (k === 0) s.events.push({ type: 'shot', weapon: w, from: { ...p }, to: { x: p.x + dx * hitT, y: p.y + dy * hitT }, hit: hit?.id ?? null });
   }
 
-  // gunfire carries: everything within earshot comes looking
+  alertWithin(s, spec.noise);
+}
+
+/** Noise carries: everything within earshot comes looking. */
+function alertWithin(s: GameState, radius: number): void {
+  const p = s.player.pos;
   for (const z of s.zombies) {
-    if (z.action !== 'dead' && z.action !== 'rise' && dist(z.pos, p) < spec.noise) z.alertT = Math.max(z.alertT, ALERT_SECONDS);
+    if (z.action !== 'dead' && z.action !== 'rise' && dist(z.pos, p) < radius) z.alertT = Math.max(z.alertT, ALERT_SECONDS);
   }
+}
+
+/** A melee swing: turn to the nearest one in reach, hit whatever is in the arc (a bat can hit
+ * several), shove them back. Quiet, no ammo, but you have to be close. */
+function swingMelee(s: GameState, w: MeleeKind, input: Input): void {
+  const a = s.arsenal;
+  if (!input.fire || a.fireCd > 0) return;
+  const spec = meleeStats(a, w);
+  const p = s.player.pos;
+  const target = aimTarget(s, w);
+  if (target) s.player.heading = Math.atan2(target.pos.y - p.y, target.pos.x - p.x);
+  a.fireCd = spec.interval;
+  a.swing++;
+  const inArc = s.zombies
+    .filter((z) => z.action !== 'dead')
+    .map((z) => ({ z, d: dist(z.pos, p) }))
+    .filter(({ z, d }) => d < spec.range + ZOMBIE_RADIUS && (d < 0.8 || Math.abs(wrap(Math.atan2(z.pos.y - p.y, z.pos.x - p.x) - s.player.heading)) < spec.arc / 2))
+    .sort((x, y) => x.d - y.d)
+    .slice(0, spec.cleave);
+  for (const { z, d } of inArc) {
+    const dx = d > 1e-6 ? (z.pos.x - p.x) / d : Math.cos(s.player.heading);
+    const dy = d > 1e-6 ? (z.pos.y - p.y) / d : Math.sin(s.player.heading);
+    hurtZombie(s, z, spec.damage, dx, dy, spec.stagger, MELEE_KNOCKBACK);
+  }
+  s.events.push({ type: 'swing', weapon: w, hits: inArc.length });
+  alertWithin(s, spec.noise);
 }
 
 function exitVehicle(s: GameState): void {
@@ -694,6 +831,7 @@ function updateTasks(s: GameState, dt: number): void {
   t.done = true;
   s.hold.taskId = null;
   s.hold.progress = 0;
+  s.safeT = SAFE_AFTER;
   s.events.push({ type: 'task-done', id: t.id });
   if (t.id === 'map') s.safehouseKnown = true;
   if (t.timeCost > 0) {
@@ -728,6 +866,7 @@ function updateZombies(s: GameState, dt: number): void {
   const cols = s.map.cols;
   const car = playerVehicle(s);
   const reachBonus = car ? VEHICLES[car.kind].length / 2 - 0.4 : 0; // a car is a bigger target
+  const busy = isBusy(s);
 
   for (const z of s.zombies) {
     if (z.action === 'dead') { z.actionT -= dt; continue; }
@@ -746,6 +885,15 @@ function updateZombies(s: GameState, dt: number): void {
     if (z.staggerT > 0) {
       z.staggerT -= dt;
       z.speed = 0;
+      continue;
+    }
+
+    // working an objective or talking to someone: the ones that were after you hold back and wait
+    if (busy && (z.action === 'chase' || z.action === 'attack' || d < 12)) {
+      if (z.action === 'attack') z.cooldown = ATTACK_COOLDOWN;
+      z.action = 'idle';
+      z.speed = 0;
+      if (d > 1e-6) z.heading = Math.atan2(dy, dx);
       continue;
     }
 

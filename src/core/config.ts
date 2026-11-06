@@ -53,20 +53,45 @@ export const TIME_PAD = 15;
 export const SPEED_BOOST = 1.12;
 export const CALM_FACTOR = 0.85;
 
-// ---- weapons. Aim assist picks a target in front of you; gunfire draws zombies.
-export const WEAPONS = {
+// ---- weapons. Aim assist picks a target in front of you; gunfire draws zombies, melee is quiet.
+export const GUNS = {
   pistol: { name: 'Pistol', damage: 34, pellets: 1, spread: 0.04, range: 20, interval: 0.3, mag: 12, reload: 1.3, noise: 28, ammoPack: 24 },
   shotgun: { name: 'Shotgun', damage: 22, pellets: 6, spread: 0.3, range: 11, interval: 0.85, mag: 6, reload: 2.2, noise: 40, ammoPack: 12 },
   rifle: { name: 'Assault rifle', damage: 26, pellets: 1, spread: 0.07, range: 28, interval: 0.11, mag: 30, reload: 2.0, noise: 45, ammoPack: 60 },
 } as const;
+/** Melee: `range` is reach, `arc` the swing's width (radians), `cleave` how many it can hit at once. */
+export const MELEE = {
+  baton: { name: 'Police baton', damage: 30, range: 2.3, arc: 1.5, cleave: 1, interval: 0.42, noise: 4, stagger: 0.5 },
+  bat: { name: 'Baseball bat', damage: 40, range: 2.6, arc: 1.8, cleave: 3, interval: 0.62, noise: 5, stagger: 0.7 },
+  machete: { name: 'Machete', damage: 60, range: 2.4, arc: 1.4, cleave: 2, interval: 0.5, noise: 3, stagger: 0.4 },
+} as const;
+export const WEAPON_NAMES: Record<keyof typeof GUNS | keyof typeof MELEE, string> = {
+  pistol: GUNS.pistol.name, shotgun: GUNS.shotgun.name, rifle: GUNS.rifle.name,
+  baton: MELEE.baton.name, bat: MELEE.bat.name, machete: MELEE.machete.name,
+};
 export const START_AMMO = { pistol: 24, shotgun: 0, rifle: 0 } as const;
 export const ZOMBIE_HEALTH = { walker: 60, runner: 45 } as const;
 export const STAGGER_SECONDS = 0.3;
+export const MELEE_KNOCKBACK = 0.7; // a solid hit shoves the zombie back this far
 export const ALERT_SECONDS = 7;
 export const KILL_REWARD = 5;
 export const AIM_CONE = 1.3; // radians either side of facing that aim assist will snap to
 export const PICKUP_RADIUS = 1.6;
-export const STORE_PRICES = {
-  'pistol-ammo': 15, shotgun: 120, 'shotgun-ammo': 25, rifle: 220, 'rifle-ammo': 35, medkit: 40,
-} as const;
-export const START_FUNDS = 30;
+
+// ---- weapon stores
+export const STORE_COUNT = 3;
+export const STORE_NAMES = ['Halden Arms', 'Liberty Outfitters', 'Harbour Gun & Tackle'] as const;
+export const STORE_DOOR_RADIUS = 1.5; // walk into the doorway to go in
+export const WEAPON_PRICES = { pistol: 60, shotgun: 120, rifle: 220, baton: 20, bat: 35, machete: 60 } as const;
+export const AMMO_PRICES = { pistol: 15, shotgun: 25, rifle: 35 } as const;
+export const MEDKIT_PRICE = 40;
+/** Each upgrade has two levels. Damage: +20% per level; magazine: +40%; reload time: -20%. */
+export const UPGRADE_LEVELS = 2;
+export const UPGRADE_EFFECT = { damage: 0.2, mag: 0.4, reload: 0.2 } as const;
+/** Price of an upgrade level = base for the weapon x factor for the kind x level (1 or 2). */
+export const UPGRADE_BASE = { pistol: 35, shotgun: 50, rifle: 65, baton: 25, bat: 30, machete: 40 } as const;
+export const UPGRADE_FACTOR = { damage: 1.2, mag: 1, reload: 0.8 } as const;
+export const START_FUNDS = 50;
+
+// ---- safe while busy: zombies hold back while you work an objective or talk to someone
+export const SAFE_AFTER = 1.0; // seconds of grace after finishing, to step away

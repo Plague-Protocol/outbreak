@@ -99,16 +99,45 @@
   #btn-swap { right: 96px; bottom: calc(env(safe-area-inset-bottom, 0px) + 128px); width: 64px; height: 64px; font-size: 10px; flex-direction: column; }
   #btn-swap b { font-size: 13px; }
   @media (hover: hover) and (pointer: fine) { .pad { opacity: .75; } }
-  /* the store */
-  #store { background: rgba(0,0,0,.82); z-index: 9; }
-  #store h1 { margin: 0; font-size: 26px; letter-spacing: .25em; color: #ff5b4b; }
-  #store .cash { color: #9ee6a8; font-weight: 600; }
-  #store ul { list-style: none; padding: 0; margin: 8px 0; width: min(92vw, 420px); }
-  #store li { display: flex; justify-content: space-between; align-items: center; padding: 10px 12px; border-bottom: 1px solid #333; gap: 12px; text-align: left; }
-  #store li small { display: block; opacity: .6; font-size: 11px; }
-  #store li button { min-width: 72px; padding: 8px 10px; border-radius: 4px; border: 1px solid #9ee6a8; background: none; color: #9ee6a8; font-weight: 700; }
-  #store li button:disabled { border-color: #444; color: #555; }
-  #store .close { margin-top: 8px; padding: 10px 26px; border: 1px solid #aaa; background: none; color: #ddd; border-radius: 4px; }
+  /* the weapon store: a full page */
+  #store { z-index: 9; background: radial-gradient(ellipse at top, #2a1714 0%, #0d0b0b 70%); justify-content: flex-start;
+    padding: calc(env(safe-area-inset-top, 0px) + 14px) 0 0; overflow: hidden; }
+  #store header { width: min(94vw, 560px); display: flex; justify-content: space-between; align-items: flex-end; }
+  #store header small { display: block; font-size: 10px; letter-spacing: .3em; color: #ff6b5b; text-align: left; }
+  #store h1 { margin: 2px 0 0; font-size: 22px; letter-spacing: .12em; color: #fff; text-align: left; }
+  #store .cash { color: #9ee6a8; font-weight: 700; font-size: 22px; }
+  #store-tabs { width: min(94vw, 560px); display: flex; gap: 6px; margin: 12px 0 4px; }
+  #store-tabs button { flex: 1; padding: 9px 4px; border: 1px solid #4a3330; background: rgba(255,255,255,.04); color: #bbb;
+    border-radius: 6px; font-size: 13px; font-weight: 600; }
+  #store-tabs button.on { background: #ff4b3b; border-color: #ff4b3b; color: #fff; }
+  #store-list { width: min(94vw, 560px); flex: 1; overflow-y: auto; -webkit-overflow-scrolling: touch; text-align: left; padding-bottom: 8px; }
+  #store-list h2 { font-size: 11px; letter-spacing: .25em; text-transform: uppercase; color: #ff8a7a; margin: 14px 2px 6px; }
+  #store .card { display: flex; gap: 10px; align-items: center; padding: 10px; margin-bottom: 8px; border-radius: 8px;
+    background: rgba(255,255,255,.05); border: 1px solid rgba(255,255,255,.07); }
+  #store .card.held { border-color: #9ee6a8; }
+  #store .card .art { width: 96px; flex: none; background: rgba(0,0,0,.35); border-radius: 6px; padding: 4px; }
+  #store .card .art img { width: 100%; display: block; }
+  #store .card .info { flex: 1; min-width: 0; }
+  #store .card .info b { font-size: 15px; }
+  #store small { display: block; opacity: .65; font-size: 11px; margin: 2px 0 4px; }
+  #store .stat { display: flex; align-items: center; gap: 6px; font-size: 10px; color: #aaa; margin-top: 3px; }
+  #store .stat span { width: 66px; flex: none; }
+  #store .stat i { flex: 1; height: 5px; background: rgba(255,255,255,.1); border-radius: 3px; overflow: hidden; }
+  #store .stat b { display: block; height: 100%; background: linear-gradient(90deg, #ff6b4b, #ffc06b); }
+  #store .act { flex: none; }
+  #store .row { display: flex; align-items: center; gap: 10px; padding: 10px 6px; border-bottom: 1px solid rgba(255,255,255,.08); }
+  #store .row > span:first-child { flex: 1; }
+  #store .pips em { display: inline-block; width: 10px; height: 10px; border-radius: 50%; margin-left: 4px; border: 1px solid #9ee6a8; }
+  #store .pips em.on { background: #9ee6a8; }
+  #store button.buy, #store button.equip { min-width: 78px; padding: 9px 10px; border-radius: 6px; border: 1px solid #9ee6a8;
+    background: rgba(158,230,168,.08); color: #9ee6a8; font-weight: 700; font-size: 14px; }
+  #store button.equip { border-color: #ffc06b; color: #ffc06b; background: rgba(255,192,107,.08); }
+  #store button:disabled { border-color: #444; color: #666; background: none; }
+  #store .note { opacity: .6; font-size: 12px; margin: 12px 4px; }
+  #store footer { width: min(94vw, 560px); display: flex; justify-content: space-between; align-items: center; gap: 10px;
+    padding: 10px 0 calc(env(safe-area-inset-bottom, 0px) + 12px); border-top: 1px solid rgba(255,255,255,.1); }
+  #store-hand { font-size: 13px; opacity: .8; }
+  #store .close { padding: 11px 22px; border: 1px solid #aaa; background: none; color: #ddd; border-radius: 6px; font-size: 14px; }
   /* the full map */
   #map-screen { background: rgba(4,6,9,.94); z-index: 9; gap: 6px; }
   #map-screen p { margin: 0; font-size: 12px; opacity: .6; }
@@ -139,8 +168,12 @@
 <div id="btn-use" class="pad">USE</div>
 <div id="btn-reload" class="pad">&#8635;</div>
 <div id="btn-swap" class="pad"><b id="ammo">12/24</b><span id="weapon-name">Pistol</span></div>
-<div id="store" class="screen"><h1>HALDEN GUNS</h1><div class="cash" id="store-cash"></div><ul id="store-items"></ul>
-  <button class="close" id="store-close">Leave</button></div>
+<div id="store" class="screen">
+  <header><div><small>Weapon store</small><h1 id="store-name">HALDEN ARMS</h1></div><div class="cash" id="store-cash"></div></header>
+  <nav id="store-tabs"></nav>
+  <div id="store-list"></div>
+  <footer><span id="store-hand"></span><button class="close" id="store-close">Leave store</button></footer>
+</div>
 <div id="map-screen" class="screen"><canvas id="fullmap"></canvas><p>Tap anywhere or press M to close</p></div>
 <div id="title" class="screen">
   <h1>OUTBREAK</h1>

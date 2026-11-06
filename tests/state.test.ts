@@ -1,12 +1,13 @@
 import { readdirSync, readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
 import {
-  aimTarget, buy, createGame, currentTask, interactionFor, playerVehicle, requiredDone, step, type GameState,
+  aimTarget, buy, createGame, currentTask, equip, gunStats, interactionFor, isBusy, playerVehicle, priceOf, requiredDone,
+  step, type GameState,
 } from '../src/core/state';
-import { cellOf } from '../src/core/map';
+import { cellOf, reachable } from '../src/core/map';
 import {
-  ATTACK_DAMAGE, ATTACK_WINDUP, MEDKIT_HEAL, PLAYER_HEALTH, SPAWNS_BY_TIER, STORE_PRICES, TASK_HOLD_SECONDS, VEHICLES,
-  WEAPONS, ZOMBIE_CAP, ZOMBIE_HEALTH,
+  AMMO_PRICES, ATTACK_DAMAGE, ATTACK_WINDUP, GUNS, MEDKIT_HEAL, MELEE, PLAYER_HEALTH, SAFE_AFTER, SPAWNS_BY_TIER, STORE_COUNT,
+  TASK_HOLD_SECONDS, UPGRADE_LEVELS, VEHICLES, WEAPON_PRICES, ZOMBIE_CAP, ZOMBIE_HEALTH,
 } from '../src/core/config';
 import type { Zombie } from '../src/core/types';
 import type { Input, Task, Vec2 } from '../src/core/types';
@@ -425,7 +426,7 @@ describe('weapons', () => {
   it('you start with a loaded pistol', () => {
     const g = calmGame(1);
     expect(g.arsenal.weapon).toBe('pistol');
-    expect(g.arsenal.mag.pistol).toBe(WEAPONS.pistol.mag);
+    expect(g.arsenal.mag.pistol).toBe(GUNS.pistol.mag);
     expect(g.arsenal.ammo.pistol).toBeGreaterThan(0);
   });
 
@@ -434,7 +435,7 @@ describe('weapons', () => {
     const funds = g.funds;
     for (let i = 0; i < 40 && z.action !== 'dead'; i++) step(g, FIRE, DT);
     expect(z.action).toBe('dead');
-    expect(g.arsenal.mag.pistol).toBe(WEAPONS.pistol.mag - 2);
+    expect(g.arsenal.mag.pistol).toBe(GUNS.pistol.mag - 2);
     expect(g.kills).toBe(1);
     expect(g.funds).toBeGreaterThan(funds);
     expect(g.events.length >= 0).toBe(true);
@@ -459,7 +460,7 @@ describe('weapons', () => {
     g.arsenal.ammo.pistol = 5;
     step(g, FIRE, DT);
     expect(g.arsenal.reloadT).toBeGreaterThan(0);
-    for (let i = 0; i < Math.ceil(WEAPONS.pistol.reload / DT) + 2; i++) step(g, IDLE, DT);
+    for (let i = 0; i < Math.ceil(GUNS.pistol.reload / DT) + 2; i++) step(g, IDLE, DT);
     expect(g.arsenal.mag.pistol).toBe(5);
     expect(g.arsenal.ammo.pistol).toBe(0);
     g.arsenal.mag.pistol = 0;
@@ -502,30 +503,154 @@ describe('weapons', () => {
     expect(g.arsenal.weapon).toBe('pistol');
   });
 
-  it('the store sells what you can afford, and nothing else', () => {
+  it('a store sells what you can afford, and nothing else', () => {
     const g = calmGame(26);
-    g.player.pos = { ...g.store.pos };
-    expect(interactionFor(g)).toEqual({ kind: 'store' });
-    g.funds = STORE_PRICES.rifle - 1;
-    expect(buy(g, 'rifle')).toBe(false);
-    expect(g.funds).toBe(STORE_PRICES.rifle - 1);
-    g.funds = STORE_PRICES.rifle + STORE_PRICES['rifle-ammo'];
-    expect(buy(g, 'rifle')).toBe(true);
+    const st = g.stores[0]!;
+    g.player.pos = { ...st.pos };
+    expect(interactionFor(g)).toEqual({ kind: 'store', storeId: st.id });
+    const rifle = { kind: 'weapon', weapon: 'rifle' } as const;
+    const ammo = { kind: 'ammo', weapon: 'rifle' } as const;
+    expect(priceOf(g, ammo)).toBeNull(); // no rifle, no rifle ammo
+    g.funds = WEAPON_PRICES.rifle - 1;
+    expect(buy(g, rifle)).toBe(false);
+    expect(g.funds).toBe(WEAPON_PRICES.rifle - 1);
+    g.funds = WEAPON_PRICES.rifle + AMMO_PRICES.rifle;
+    expect(buy(g, rifle)).toBe(true);
     expect(g.arsenal.owned).toContain('rifle');
-    expect(buy(g, 'rifle')).toBe(false); // already own one
+    expect(buy(g, rifle)).toBe(false); // already own one
     const spare = g.arsenal.ammo.rifle;
-    expect(buy(g, 'rifle-ammo')).toBe(true);
-    expect(g.arsenal.ammo.rifle).toBe(spare + WEAPONS.rifle.ammoPack);
+    expect(buy(g, ammo)).toBe(true);
+    expect(g.arsenal.ammo.rifle).toBe(spare + GUNS.rifle.ammoPack);
     expect(g.funds).toBe(0);
   });
 
-  it('every level has a store and guns to find', () => {
+  it('upgrades raise damage, magazine and reload speed, up to the cap, and get dearer', () => {
+    const g = calmGame(27);
+    g.funds = 10_000;
+    const dmg = { kind: 'upgrade', weapon: 'pistol', upgrade: 'damage' } as const;
+    const mag = { kind: 'upgrade', weapon: 'pistol', upgrade: 'mag' } as const;
+    const before = gunStats(g.arsenal, 'pistol');
+    const p1 = priceOf(g, dmg)!;
+    expect(buy(g, dmg)).toBe(true);
+    expect(priceOf(g, dmg)!).toBeGreaterThan(p1);
+    expect(gunStats(g.arsenal, 'pistol').damage).toBeGreaterThan(before.damage);
+    expect(buy(g, mag)).toBe(true);
+    expect(gunStats(g.arsenal, 'pistol').mag).toBeGreaterThan(before.mag);
+    expect(g.arsenal.mag.pistol).toBe(gunStats(g.arsenal, 'pistol').mag); // the bigger magazine comes loaded
+    for (let i = 1; i < UPGRADE_LEVELS; i++) buy(g, dmg);
+    expect(priceOf(g, dmg)).toBeNull();
+    expect(buy(g, dmg)).toBe(false);
+    // melee weapons only take a damage upgrade, and only once you own them
+    expect(priceOf(g, { kind: 'upgrade', weapon: 'baton', upgrade: 'mag' })).toBeNull();
+    expect(priceOf(g, { kind: 'upgrade', weapon: 'machete', upgrade: 'damage' })).toBeNull();
+  });
+
+  it('walking into a store doorway opens it, once, until you step out', () => {
+    const g = calmGame(28);
+    const st = g.stores[0]!;
+    const f = st.front.facing;
+    g.player.pos = { x: st.pos.x + f.x * 4, y: st.pos.y + f.y * 4 };
+    const walkIn: Input = { dx: -f.x, dy: -f.y };
+    let opened = 0;
+    for (let i = 0; i < 90; i++) { step(g, walkIn, DT); opened += g.events.filter((e) => e.type === 'store-open').length; }
+    expect(opened).toBe(1);
+    for (let i = 0; i < 60; i++) step(g, { dx: f.x, dy: f.y }, DT); // step back out
+    for (let i = 0; i < 90; i++) { step(g, walkIn, DT); opened += g.events.filter((e) => e.type === 'store-open').length; }
+    expect(opened).toBe(2);
+  });
+
+  it('every level has weapon stores you can walk to, and weapons to find', () => {
     for (const seed of [1, 2, 3, 4, 5, 6]) {
       const g = calmGame(seed);
+      expect(g.stores.length).toBe(STORE_COUNT);
+      for (const st of g.stores) {
+        expect(g.map.blocked[cellOf(g.map, st.pos)]).toBe(0);
+        expect(reachable(g.map, g.player.pos, st.pos)).toBe(true);
+      }
       expect(g.pickups.filter((p) => p.kind === 'shotgun').length).toBeGreaterThan(0);
       expect(g.pickups.filter((p) => p.kind === 'rifle').length).toBe(1);
-      expect(g.map.blocked[cellOf(g.map, g.store.pos)]).toBe(0);
+      expect(g.pickups.filter((p) => p.kind === 'bat' || p.kind === 'machete').length).toBeGreaterThan(0);
     }
+  });
+});
+
+describe('melee', () => {
+  const SWING: Input = { dx: 0, dy: 0, fire: true };
+
+  it('you start with a baton you can swap to and equip', () => {
+    const g = calmGame(30);
+    expect(g.arsenal.owned).toEqual(['pistol', 'baton']);
+    step(g, { dx: 0, dy: 0, swap: true }, DT);
+    expect(g.arsenal.weapon).toBe('baton');
+    expect(equip(g, 'pistol')).toBe(true);
+    expect(g.arsenal.weapon).toBe('pistol');
+    expect(equip(g, 'machete')).toBe(false); // not owned
+  });
+
+  it('a baton drops a walker in two hits, without ammo, and quietly', () => {
+    const g = calmGame(31);
+    const p = openSpot(g, 8);
+    g.player.pos = { ...p };
+    g.player.heading = 0;
+    equip(g, 'baton');
+    const z = walker(600, { x: p.x + 1.6, y: p.y });
+    const far = walker(601, { x: p.x, y: p.y + 20 });
+    g.zombies = [z, far];
+    const ammo = { ...g.arsenal.ammo }, mag = { ...g.arsenal.mag };
+    let swings = 0;
+    for (let i = 0; i < 90 && z.action !== 'dead'; i++) {
+      step(g, SWING, DT);
+      swings += g.events.filter((e) => e.type === 'swing').length;
+    }
+    expect(z.action).toBe('dead');
+    expect(swings).toBe(Math.ceil(ZOMBIE_HEALTH.walker / MELEE.baton.damage));
+    expect(g.arsenal.ammo).toEqual(ammo);
+    expect(g.arsenal.mag).toEqual(mag);
+    expect(far.alertT).toBe(0); // nobody heard it
+  });
+
+  it('a bat hits several in its arc; nothing behind you or out of reach', () => {
+    const g = calmGame(32);
+    const p = openSpot(g, 8);
+    g.player.pos = { ...p };
+    g.player.heading = 0;
+    g.arsenal.owned.push('bat');
+    equip(g, 'bat');
+    g.zombies = [
+      walker(700, { x: p.x + 1.8, y: p.y + 0.6 }),
+      walker(701, { x: p.x + 1.8, y: p.y - 0.6 }),
+      walker(702, { x: p.x - 1.8, y: p.y }), // behind
+      walker(703, { x: p.x + 6, y: p.y }), // out of reach
+    ];
+    for (let i = 0; i < 30; i++) { step(g, SWING, DT); if (g.events.some((e) => e.type === 'swing')) break; } // equipping takes a moment
+    const hit = g.zombies.filter((z) => z.health < ZOMBIE_HEALTH.walker).map((z) => z.id).sort();
+    expect(hit).toEqual([700, 701]);
+  });
+});
+
+describe('safe while busy', () => {
+  it('zombies hold back while you work an objective, and for a moment after', () => {
+    const g = createGame(40);
+    const t = currentTask(g)!;
+    g.player.pos = { ...t.pos };
+    g.player.vel = { x: 0, y: 0 };
+    // one right beside you, mid-lunge, and one closing in
+    const lunging = walker(800, { x: t.pos.x + 1.1, y: t.pos.y });
+    lunging.action = 'attack';
+    lunging.actionT = 0.05;
+    const coming = walker(801, { x: t.pos.x + 6, y: t.pos.y });
+    coming.action = 'chase';
+    g.zombies = [lunging, coming];
+    step(g, USE, DT);
+    expect(isBusy(g)).toBe(true);
+    const at = { ...coming.pos };
+    for (let i = 0; i < Math.ceil(TASK_HOLD_SECONDS / DT) + 2 && !t.done; i++) step(g, IDLE, DT);
+    expect(t.done).toBe(true);
+    expect(g.player.health).toBe(PLAYER_HEALTH);
+    expect(Math.hypot(coming.pos.x - at.x, coming.pos.y - at.y)).toBeLessThan(0.3);
+    expect(isBusy(g)).toBe(true); // the grace period
+    for (let i = 0; i < Math.ceil(SAFE_AFTER / DT) + 1; i++) step(g, IDLE, DT);
+    expect(isBusy(g)).toBe(false);
   });
 });
 

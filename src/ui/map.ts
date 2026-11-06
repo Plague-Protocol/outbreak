@@ -13,7 +13,7 @@ const DISTRICT_COLORS: Record<string, string> = {
 };
 const SOLID_COLORS: Record<string, string> = {
   tower: '#15161a', building: '#15161a', shop: '#2a2622', house: '#4a3a30', warehouse: '#24272c', container: '#5a3a2a',
-  tree: '#2e5a33', deadtree: '#4a4136', water: '#0f2a3d',
+  store: '#8c2422', tree: '#2e5a33', deadtree: '#4a4136', water: '#0f2a3d',
 };
 
 /** Static map image (roads, districts, buildings), drawn once per night. */
@@ -52,8 +52,8 @@ function markers(s: GameState): Marker[] {
     out.push({ pos: t.pos, color: t.required ? '#f2b630' : '#3f9be6', size: t === cur ? 7 : 5, shape: 'ring', label: t === cur ? shortName(t.id) : undefined });
   }
   if (s.safehouseKnown) out.push({ pos: s.safehouse, color: requiredDone(s) ? '#3ddc84' : '#d9534f', size: 8, shape: 'ring', label: 'Evac' });
-  out.push({ pos: s.store.pos, color: '#ff4b4b', size: 6, shape: 'cash', label: 'Guns' });
-  for (const p of s.pickups) if (!p.taken && p.kind !== 'ammo') out.push({ pos: p.pos, color: '#f2d060', size: 3.5, shape: 'dot' });
+  for (const st of s.stores) out.push({ pos: st.pos, color: '#ff4b4b', size: 6, shape: 'cash', label: 'Weapons' });
+  for (const p of s.pickups) if (!p.taken && p.kind !== 'ammo') out.push({ pos: p.pos, color: p.kind === 'bat' || p.kind === 'machete' ? '#d0a070' : '#f2d060', size: 3.5, shape: 'dot' });
   for (const v of s.vehicles) if (!v.wrecked && v.id !== s.player.vehicleId) out.push({ pos: v.pos, color: '#e8e8e8', size: 3, shape: 'square' });
   return out;
 }

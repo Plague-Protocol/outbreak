@@ -10,9 +10,10 @@ export type SkinName = (typeof SKINS)[number];
 
 export type ClipName =
   | 'Idle' | 'Walk' | 'Jog' | 'Sprint' | 'Death' | 'Hit' | 'Aim' | 'Shoot' | 'Reload' | 'Interact' | 'Kneel' | 'Talk'
+  | 'Swing' | 'Swing2'
   | 'ZIdle' | 'ZWalk' | 'ZAttack' | 'ZRise'
-  | 'AimUpper' | 'ShootUpper' | 'ReloadUpper';
-export type UpperClip = 'AimUpper' | 'ShootUpper' | 'ReloadUpper';
+  | UpperClip;
+export type UpperClip = 'AimUpper' | 'ShootUpper' | 'ReloadUpper' | 'SwingUpper' | 'Swing2Upper';
 
 const UPPER_BONES = /^(Spine|Chest|UpperChest|Neck|Head|Left(Shoulder|Arm|ForeArm|Hand)|Right(Shoulder|Arm|ForeArm|Hand))\./;
 
@@ -44,8 +45,8 @@ export async function loadCharacterAssets(): Promise<CharacterAssets> {
     clips.set(c.name as ClipName, c);
     groundSpeed.set(c.name as ClipName, (meta.clips[c.name]?.groundSpeed ?? 0) * scale);
   }
-  // upper-body versions of the gun clips, layered over locomotion
-  for (const name of ['Aim', 'Shoot', 'Reload'] as const) {
+  // upper-body versions of the gun and melee clips, layered over locomotion
+  for (const name of ['Aim', 'Shoot', 'Reload', 'Swing', 'Swing2'] as const) {
     const c = clips.get(name);
     if (c) clips.set(`${name}Upper`, new AnimationClip(`${name}Upper`, c.duration, c.tracks.filter((t) => UPPER_BONES.test(t.name))));
   }

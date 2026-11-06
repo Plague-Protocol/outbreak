@@ -6,9 +6,9 @@ import {
 import { Actor, type CharacterAssets, type ClipName } from './characters';
 import { buildCity, type CityMeshes, type LightSource } from './city';
 import { MeshBuilder } from './mesh';
-import { Effects, Evac, gunMesh, pickupMesh, pulseGlint, storeMesh, storyItem, vehicleMesh, wreckVehicle } from './props';
-import { currentTask, playerSpeed, playerVehicle, requiredDone, type GameState } from '../core/state';
-import { ATTACK_WINDUP, SAFEHOUSE_RADIUS, TASK_RADIUS, WEAPONS } from '../core/config';
+import { Effects, Evac, pickupMesh, pulseGlint, storefrontMesh, storyItem, vehicleMesh, weaponMesh, wreckVehicle } from './props';
+import { currentTask, gunStats, isGun, playerSpeed, playerVehicle, requiredDone, type GameState } from '../core/state';
+import { ATTACK_WINDUP, MELEE, SAFEHOUSE_RADIUS, TASK_RADIUS } from '../core/config';
 import type { GameEvent, TaskId, Vec2, WeaponKind, Zombie } from '../core/types';
 
 const params = new URLSearchParams(location.search);
@@ -71,6 +71,7 @@ export class GameView {
   private time = 0;
   private wasCaught = false;
   private lastShot = -10;
+  private lastSwing = -10;
   /** 0 = wide establishing shot, 1 = gameplay camera. Driven by the intro. */
   cinematic = 1;
 
@@ -141,7 +142,9 @@ export class GameView {
     this.city = buildCity(s.map, s.seed);
     this.scene.add(this.city.group, this.city.pools);
     this.lightSources = this.city.lights.slice();
-    this.lightSources.push({ pos: new Vector3(s.store.pos.x - 1.6, 5.3, s.store.pos.y), color: 0xff3b3b, kind: 'lamp', broken: false });
+    for (const st of s.stores) { // the neon sign over each weapon store
+      this.lightSources.push({ pos: new Vector3(st.pos.x, 4.2, st.pos.y), color: 0xff5040, kind: 'lamp', broken: false });
+    }
 
     for (const a of this.zombies.values()) { this.scene.remove(a.root); this.actorPool.push(a); }
     this.zombies.clear();
@@ -165,9 +168,8 @@ export class GameView {
       this.level.add(g);
       this.pickups.set(p.id, g);
     }
-    const store = storeMesh();
-    store.position.set(s.store.pos.x, 0.15, s.store.pos.y);
-    this.level.add(store);
+    const solid = (this.city.group.children[0] as Mesh).material as Material;
+    for (const st of s.stores) this.level.add(storefrontMesh(st, solid));
     // supply crates: olive boxes with a white stencil; opened ones sag open
     const cb = new MeshBuilder().box(0, 0.45, 0, 1.1, 0.9, 0.8, 0x4a5233, 0x56603c).box(0, 0.91, 0, 0.5, 0.02, 0.12, 0xd8d3c8).box(0, 0.91, 0, 0.12, 0.02, 0.5, 0xd8d3c8);
     this.crates = new InstancedMesh(cb.build(), this.city.group.children[0] ? ((this.city.group.children[0] as Mesh).material as Material) : new MeshBasicMaterial(), s.crates.length || 1);
@@ -297,7 +299,15 @@ export class GameView {
           if (v && e.force > 4) { this.effects.burst(new Vector3(v.pos.x, 1, v.pos.y), 0xffb040, 10, 6); this.shake(Math.min(1, e.force / 12)); }
           break;
         }
-        case 'reload': this.player.setUpper('ReloadUpper', { timeScale: 1.667 / WEAPONS[e.weapon].reload }); break;
+        case 'reload': this.player.setUpper('ReloadUpper', { timeScale: 1.667 / gunStats(s.arsenal, e.weapon).reload }); break;
+        case 'swing': {
+          // alternate forehand and backhand; speed the clip up to fit the weapon's swing time
+          this.lastSwing = this.time;
+          const clip = s.arsenal.swing % 2 ? 'SwingUpper' : 'Swing2Upper';
+          this.player.setUpper(clip, { restart: true, timeScale: Math.max(1, (clip === 'SwingUpper' ? 0.433 : 0.533) / MELEE[e.weapon].interval) });
+          if (e.hits > 0) this.shake(e.weapon === 'bat' ? 0.18 : 0.12);
+          break;
+        }
         default: break;
       }
     }
@@ -350,7 +360,8 @@ export class GameView {
       // gun up while shooting or reloading, lowered otherwise
       const a = s.arsenal;
       if (hold) this.player.setUpper(null);
-      else if (a.reloadT > 0) this.player.setUpper('ReloadUpper', { timeScale: 1.667 / WEAPONS[a.weapon ?? 'pistol'].reload });
+      else if (a.weapon && !isGun(a.weapon)) { if (this.time - this.lastSwing > 0.6) this.player.setUpper(null); }
+      else if (a.reloadT > 0 && a.weapon) this.player.setUpper('ReloadUpper', { timeScale: 1.667 / gunStats(a, a.weapon).reload });
       else if (this.time - this.lastShot < 1.2) { if (this.time - this.lastShot > 0.35) this.player.setUpper('AimUpper'); }
       else this.player.setUpper(null);
     }
@@ -440,6 +451,8 @@ export class GameView {
       this.animateZombie(a, z);
       if (z.action !== 'dead') shadowAt(z.pos.x, z.pos.y);
       a.update(z.pos.x, z.pos.y, z.heading, dt, true);
+      // the dead lie where they fell, then sink away before they are gone
+      if (z.action === 'dead' && z.actionT < 1.5) a.root.position.y = -(1.5 - Math.max(0, z.actionT)) * 0.7;
     }
     for (const e of this.extras) {
       const t = s.tasks.find((x) => x.id === e.task);
@@ -459,7 +472,7 @@ export class GameView {
   private updateGun(s: GameState, show: boolean): void {
     const w = s.arsenal.weapon;
     if (w !== this.gunKind) {
-      this.gun = w ? gunMesh(w) : null;
+      this.gun = w ? weaponMesh(w) : null;
       this.gunKind = w;
       this.player.holdInRightHand(this.gun);
     }

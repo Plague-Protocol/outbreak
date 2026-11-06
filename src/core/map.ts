@@ -1,5 +1,6 @@
 import { createRng, chance, int, pick, range, shuffle, type Rng } from './rng';
-import type { Block, Building, Decor, District, MapData, ObstacleKind, ParkingSpot, Vec2 } from './types';
+import type { Block, Building, Decor, District, MapData, ObstacleKind, ParkingSpot, Storefront, Vec2 } from './types';
+import { STORE_COUNT } from './config';
 
 // World scale: a character is 2.8 units tall (about 1.75 m), so 1 unit is about 0.63 m.
 export const BLOCKS = 8;
@@ -64,6 +65,42 @@ function assignDistricts(rng: Rng): District[][] {
   return d;
 }
 
+const STORE_W = 9; // frontage
+const STORE_D = 6.5; // depth
+const STORE_SETBACK = 0.6; // from the kerb
+const DOOR_OUT = 1.3; // the door point, out from the facade
+
+/**
+ * Weapon stores: one building per chosen block, on the block's edge with its door to the street.
+ * Chosen with their own random stream so the rest of the city does not shift. Blocks in town are
+ * preferred, spread at least three blocks apart.
+ */
+function chooseStorefronts(seed: number, districts: District[][]): Map<number, Storefront> {
+  const rng = createRng(seed ^ 0x5f0e57);
+  const cands: Array<[number, number]> = [];
+  for (let i = 0; i < BLOCKS; i++) for (let j = 0; j < BLOCKS; j++) cands.push([i, j]);
+  const rank = (d: District) => (d === 'downtown' || d === 'residential' ? 0 : d === 'industrial' || d === 'outskirts' ? 1 : 2);
+  const order = shuffle(rng, cands).sort((a, b) => rank(districts[a[0]]![a[1]]!) - rank(districts[b[0]]![b[1]]!));
+  const out = new Map<number, Storefront>();
+  const picked: Array<[number, number]> = [];
+  for (const [i, j] of order) {
+    if (out.size >= STORE_COUNT) break;
+    if (rank(districts[i]![j]!) === 2) break;
+    if (picked.some(([a, b]) => Math.max(Math.abs(a - i), Math.abs(b - j)) < 3)) continue;
+    const bx = STREET + i * PITCH, by = STREET + j * PITCH, mid = BLOCK / 2;
+    let f: Storefront;
+    switch (int(rng, 0, 3)) {
+      case 0: f = { x: bx + mid - STORE_W / 2, y: by + STORE_SETBACK, w: STORE_W, h: STORE_D, door: { x: bx + mid, y: by + STORE_SETBACK - DOOR_OUT }, facing: { x: 0, y: -1 } }; break;
+      case 1: f = { x: bx + mid - STORE_W / 2, y: by + BLOCK - STORE_SETBACK - STORE_D, w: STORE_W, h: STORE_D, door: { x: bx + mid, y: by + BLOCK - STORE_SETBACK + DOOR_OUT }, facing: { x: 0, y: 1 } }; break;
+      case 2: f = { x: bx + STORE_SETBACK, y: by + mid - STORE_W / 2, w: STORE_D, h: STORE_W, door: { x: bx + STORE_SETBACK - DOOR_OUT, y: by + mid }, facing: { x: -1, y: 0 } }; break;
+      default: f = { x: bx + BLOCK - STORE_SETBACK - STORE_D, y: by + mid - STORE_W / 2, w: STORE_D, h: STORE_W, door: { x: bx + BLOCK - STORE_SETBACK + DOOR_OUT, y: by + mid }, facing: { x: 1, y: 0 } };
+    }
+    picked.push([i, j]);
+    out.set(i * BLOCKS + j, f);
+  }
+  return out;
+}
+
 /**
  * A port city on a street grid: downtown towers, residential streets, a park, docklands on the
  * harbour, and desolate outskirts. Obstacles only ever sit inside blocks (or the harbour), so the
@@ -72,6 +109,7 @@ function assignDistricts(rng: Rng): District[][] {
 export function generateMap(seed: number): MapData {
   const rng = createRng(seed);
   const districts = assignDistricts(rng);
+  const storeBlocks = chooseStorefronts(seed, districts);
   const obstacles: Building[] = [];
   const decor: Decor[] = [];
   const blocks: Block[] = [];
@@ -91,6 +129,8 @@ export function generateMap(seed: number): MapData {
         inBlock.push(o);
         return true;
       };
+      const front = storeBlocks.get(i * BLOCKS + j);
+      if (front) tryAdd({ kind: 'store', x: front.x, y: front.y, w: front.w, h: front.h, height: 5, tone: 0.5 });
       const lampCorners = () => {
         for (const [cx, cy] of [[bx + 0.3, by + 0.3], [bx + BLOCK - 0.7, by + BLOCK - 0.7], [bx + 0.3, by + BLOCK - 0.7], [bx + BLOCK - 0.7, by + 0.3]]) {
           if (chance(rng, 0.55)) tryAdd(prop('lamp', cx!, cy!, false, rng), 0.5);
@@ -248,7 +288,9 @@ export function generateMap(seed: number): MapData {
     }
   }
   const points = pts.filter((p) => blocked[Math.floor(p.y) * cols + Math.floor(p.x)] === 0);
-  const parkingFree = parking.filter((p) => blocked[Math.floor(p.y) * cols + Math.floor(p.x)] === 0);
+  const storefronts = [...storeBlocks.values()];
+  // keep store doors clear of parked cars
+  const parkingFree = parking.filter((p) => blocked[Math.floor(p.y) * cols + Math.floor(p.x)] === 0 && storefronts.every((f) => Math.hypot(p.x - f.door.x, p.y - f.door.y) > 7));
 
   // spatial hash for collision queries
   const gridN = Math.ceil(MAP_SIZE / GRID_CELL);
@@ -259,7 +301,7 @@ export function generateMap(seed: number): MapData {
     for (let gy = gy0; gy <= gy1; gy++) for (let gx = gx0; gx <= gx1; gx++) grid[gy * gridN + gx]!.push(idx);
   });
 
-  return { size: MAP_SIZE, cols, buildings: obstacles, blocked, points, blocks, decor, parking: parkingFree, grid, gridCell: GRID_CELL, gridN };
+  return { size: MAP_SIZE, cols, buildings: obstacles, blocked, points, blocks, decor, parking: parkingFree, storefronts, grid, gridCell: GRID_CELL, gridN };
 }
 
 export function districtAt(map: MapData, p: Vec2): Block | null {

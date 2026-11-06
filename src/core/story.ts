@@ -27,7 +27,7 @@ export const INTRO: { card: string; sub: string; lines: Line[] } = {
     'Narrator|Port Halden. Three days ago a virus came in on a cargo ship. Nobody gave it a name. The news just called it the fever.',
     'Narrator|Then the fevered stopped being sick. They got up off the hospital floors and walked out into the city, hungry.',
     `${RADIO}|This is the emergency broadcast. The army is running one last evacuation tonight. Survivors, make your way to the evac point.`,
-    `${RADIO}|The last helicopter leaves on schedule and it will not wait. If you need to defend yourself, Halden Guns has left its doors open.`,
+    `${RADIO}|The last helicopter leaves on schedule and it will not wait. If you need to defend yourself, the weapon stores have left their doors open. Halden Arms is one.`,
     `${HERO}|Get what I need, find a ride, and get on that helicopter. Don't stop moving.`,
   ].map(L),
 };

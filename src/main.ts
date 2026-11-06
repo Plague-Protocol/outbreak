@@ -8,7 +8,8 @@ import { Hud } from './ui/hud';
 import { Dialogue } from './ui/dialogue';
 import { Sound } from './audio/sound';
 import { CityMap } from './ui/map';
-import { WEAPONS } from './core/config';
+import { WEAPON_NAMES } from './core/config';
+import { StorePage } from './ui/store';
 import { anonymousSession } from './seams/session';
 import { noopProgress, type RunResult } from './seams/progress';
 
@@ -40,7 +41,8 @@ const hud = new Hud({
 });
 view.cinematic = 0;
 let paused = false; // store or full map open
-const cityMap = new CityMap((open) => { paused = open || hud.storeOpen; controls.enabled = !paused; });
+const storePage = new StorePage((t) => hud.toast(t));
+const cityMap = new CityMap((open) => { paused = open || storePage.open; controls.enabled = !paused; });
 
 $('mute').addEventListener('click', () => {
   sound.setMuted(!sound.muted);
@@ -60,6 +62,7 @@ if (debug) Object.defineProperty(window, '__outbreak', { get: () => ({ state, mo
 function begin(seed: number, withIntro: boolean): void {
   if (seed !== state.seed || state.phase !== 'playing' || state.elapsed > 0) state = createGame(seed);
   hud.reset();
+  storePage.hide();
   paused = false;
   controls.enabled = true;
   if (cityMap.open) cityMap.toggle();
@@ -122,19 +125,22 @@ function narrate(events: readonly GameEvent[]): void {
         break;
       case 'player-hit': hud.hurt(); view.shake(0.4); break;
       case 'pickup':
-        hud.toast(e.kind === 'ammo' ? `+${e.amount} ammo` : `Picked up: ${WEAPONS[e.kind].name}`);
+        hud.toast(e.kind === 'ammo' ? `+${e.amount} ammo` : `Picked up: ${WEAPON_NAMES[e.kind]}`);
         break;
       case 'crate-opened':
         hud.toast(e.loot === 'medkit' ? 'Medkit: +health' : e.loot === 'supplies' ? 'Supplies: +$25' : e.loot === 'ammo' ? 'Ammo' : 'Empty');
         break;
       case 'vehicle-enter': hud.toast('Drive with the stick. Run them down.'); break;
       case 'vehicle-wrecked': hud.toast('The engine dies. Get out!'); view.shake(0.8); break;
-      case 'empty': hud.toast('Out of ammo. Find some, or buy it at Halden Guns.'); break;
-      case 'store-open':
+      case 'empty': hud.toast('Out of ammo. Swap to your baton (Q), or buy rounds at a weapon store.'); break;
+      case 'store-open': {
+        const st = state.stores.find((x) => x.id === e.id);
+        if (!st) break;
         paused = true;
         controls.enabled = false;
-        hud.openStore(state, () => { paused = cityMap.open; controls.enabled = !paused; });
+        storePage.show(state, st, () => { paused = cityMap.open; controls.enabled = !paused; });
         break;
+      }
       default: break;
     }
   }

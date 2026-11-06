@@ -3,7 +3,7 @@
 // when one lunges, footsteps paced to the player's speed, a heartbeat when time or distance is short,
 // and stingers. Starts on the first tap (browsers require a user gesture).
 import { playerSpeed, playerVehicle, type GameState } from '../core/state';
-import type { GameEvent, WeaponKind } from '../core/types';
+import type { GameEvent, GunKind } from '../core/types';
 
 export class Sound {
   private ctx: AudioContext | null = null;
@@ -241,7 +241,32 @@ export class Sound {
     });
   }
 
-  gunshot(kind: WeaponKind): void {
+  /** A melee swing: a band-passed whoosh, and a dull impact if it connected. */
+  swing(hits: number, heavy: boolean): void {
+    const ctx = this.ctx!, at = ctx.currentTime;
+    const n = this.noiseSrc(at, 0.25);
+    const bp = ctx.createBiquadFilter();
+    bp.type = 'bandpass';
+    bp.Q.value = 1.2;
+    bp.frequency.setValueAtTime(heavy ? 500 : 800, at);
+    bp.frequency.exponentialRampToValueAtTime(heavy ? 1400 : 2200, at + 0.14);
+    const g = ctx.createGain();
+    this.env(g, at, 0.22, 0.04, 0.12);
+    n.connect(bp).connect(g).connect(this.sfx);
+    if (hits > 0) {
+      const t = at + 0.08;
+      const o = ctx.createOscillator();
+      o.frequency.setValueAtTime(heavy ? 140 : 180, t);
+      o.frequency.exponentialRampToValueAtTime(50, t + 0.12);
+      const og = ctx.createGain();
+      this.env(og, t, 0.4, 0.002, 0.12);
+      o.connect(og).connect(this.sfx);
+      o.start(t);
+      o.stop(t + 0.18);
+    }
+  }
+
+  gunshot(kind: GunKind): void {
     const ctx = this.ctx!, at = ctx.currentTime;
     const big = kind === 'shotgun', sharp = kind === 'rifle';
     const n = this.noiseSrc(at, big ? 0.5 : 0.25);
@@ -337,6 +362,8 @@ export class Sound {
     } else this.engineOff();
     for (const e of events) {
       if (e.type === 'shot') this.gunshot(e.weapon);
+      else if (e.type === 'swing') this.swing(e.hits, e.weapon === 'bat');
+      else if (e.type === 'equip') this.click();
       else if (e.type === 'reload') this.click();
       else if (e.type === 'empty') this.click(true);
       else if (e.type === 'pickup' || e.type === 'purchase') this.chime();
