@@ -51,7 +51,27 @@ $('mute').addEventListener('click', () => {
 
 startBtn.disabled = false;
 startBtn.textContent = 'Begin';
+// Phones play in landscape. Where the browser allows it (Android, from a tap), go full screen and
+// lock the orientation; everywhere else a "turn your phone" screen covers portrait and the game waits.
+const touch = matchMedia('(pointer: coarse)').matches;
+const portrait = matchMedia('(orientation: portrait)');
+const upright = () => touch && portrait.matches;
+async function goLandscape(): Promise<void> {
+  if (!touch) return;
+  try {
+    if (!document.fullscreenElement && document.documentElement.requestFullscreen) await document.documentElement.requestFullscreen({ navigationUI: 'hide' });
+    const o = screen.orientation as ScreenOrientation & { lock?: (o: string) => Promise<void> };
+    await o.lock?.('landscape');
+  } catch { /* not allowed here (iPhone, desktop): the rotate screen covers it */ }
+}
+// no zooming: no pinch (iOS gesture events), no double-tap zoom, no long-press menu
+for (const ev of ['gesturestart', 'gesturechange', 'gestureend', 'dblclick', 'contextmenu']) {
+  document.addEventListener(ev, (e) => e.preventDefault(), { passive: false });
+}
+document.addEventListener('touchmove', (e) => { if (e.touches.length > 1) e.preventDefault(); }, { passive: false });
+
 startBtn.addEventListener('click', () => {
+  void goLandscape();
   sound.start();
   $('title').style.display = 'none';
   begin(state.seed, !params.has('skipintro'));
@@ -187,7 +207,7 @@ function frame(now: number): void {
   last = now;
 
   const t0 = performance.now();
-  if (mode === 'play' && !paused) {
+  if (mode === 'play' && !paused && !upright()) {
     acc += dt;
     let n = 0;
     while (acc >= SIM_DT && n < MAX_STEPS_PER_FRAME) {

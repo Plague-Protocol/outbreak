@@ -4,11 +4,17 @@
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover" />
 <meta name="theme-color" content="#06080c" />
+<meta name="mobile-web-app-capable" content="yes" />
+<meta name="apple-mobile-web-app-capable" content="yes" />
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+<link rel="manifest" href="/manifest.webmanifest" />
 <link rel="icon" href="data:," />
 <title>Outbreak</title>
 <style>
   html, body { margin: 0; height: 100%; background: #06080c; overflow: hidden; overscroll-behavior: none;
-    font-family: system-ui, -apple-system, "Segoe UI", sans-serif; color: #eee; user-select: none; -webkit-user-select: none; }
+    font-family: system-ui, -apple-system, "Segoe UI", sans-serif; color: #eee; user-select: none; -webkit-user-select: none;
+    touch-action: none; -webkit-touch-callout: none; -webkit-tap-highlight-color: transparent; }
+  button, .screen { touch-action: manipulation; }
   #game { position: fixed; inset: 0; touch-action: none; }
   canvas { display: block; width: 100%; height: 100%; }
   .layer { position: fixed; inset: 0; pointer-events: none; }
@@ -113,7 +119,7 @@
   #store-tabs button { flex: 1; padding: 9px 4px; border: 1px solid #4a3330; background: rgba(255,255,255,.04); color: #bbb;
     border-radius: 6px; font-size: 13px; font-weight: 600; }
   #store-tabs button.on { background: #ff4b3b; border-color: #ff4b3b; color: #fff; }
-  #store-list { width: min(94vw, 560px); flex: 1; overflow-y: auto; -webkit-overflow-scrolling: touch; text-align: left; padding-bottom: 8px; }
+  #store-list { width: min(94vw, 560px); flex: 1; overflow-y: auto; -webkit-overflow-scrolling: touch; text-align: left; padding-bottom: 8px; touch-action: pan-y; }
   #store-list h2 { font-size: 11px; letter-spacing: .25em; text-transform: uppercase; color: #ff8a7a; margin: 14px 2px 6px; }
   #store .card { display: flex; gap: 10px; align-items: center; padding: 10px; margin-bottom: 8px; border-radius: 8px;
     background: rgba(255,255,255,.05); border: 1px solid rgba(255,255,255,.07); }
@@ -144,6 +150,32 @@
   /* the full map */
   #map-screen { background: rgba(4,6,9,.94); z-index: 9; gap: 6px; }
   #map-screen p { margin: 0; font-size: 12px; opacity: .6; }
+  /* phones play sideways: held upright, the game waits behind this */
+  #rotate { z-index: 20; background: #06080c; display: none; }
+  #rotate .phone { width: 46px; height: 80px; border: 3px solid #ddd; border-radius: 9px; animation: turn 2.2s ease-in-out infinite; }
+  #rotate p { margin: 18px 0 0; font-size: 15px; letter-spacing: .08em; opacity: .85; }
+  @keyframes turn { 0%, 25% { transform: rotate(0); } 55%, 100% { transform: rotate(-90deg); } }
+  @media (orientation: portrait) and (pointer: coarse) { #rotate { display: flex; } }
+  /* landscape on a phone: a short screen, so a tighter HUD that keeps clear of the thumbs */
+  @media (max-height: 500px) {
+    #hud { padding: 8px 12px; }
+    #timer { font-size: 24px; }
+    #task { font-size: 12px; max-width: 42%; }
+    #task small { font-size: 11px; }
+    #mute { margin-top: 4px; font-size: 11px; padding: 2px 7px; }
+    #minimap { width: 92px; height: 92px; top: calc(env(safe-area-inset-top, 0px) + 66px); }
+    #arrow { top: 58px; }
+    #toast { top: 64px; }
+    #subs { bottom: calc(12px + env(safe-area-inset-bottom, 0px)); width: min(38vw, 420px); }
+    #subs .text { font-size: 14px; }
+    body.cinema #subs { bottom: calc(12vh + env(safe-area-inset-bottom, 0px)); width: min(70vw, 640px); }
+    #card h2 { font-size: 34px; }
+    #store header h1 { font-size: 18px; }
+    #store-tabs { margin: 6px 0 2px; }
+    #store-tabs button { padding: 6px 4px; }
+    #store footer { padding: 6px 0 calc(env(safe-area-inset-bottom, 0px) + 6px); }
+    #store .close { padding: 7px 18px; }
+  }
   #debug { position: fixed; bottom: 4px; left: 6px; font: 11px monospace; color: #9f9; white-space: pre; pointer-events: none; z-index: 9; }
 </style>
 </head>
@@ -191,6 +223,7 @@
   <div class="row"><button id="retry">Try again</button><button id="new-night">New night</button></div>
   <div class="seed" id="end-seed"></div>
 </div>
+<div id="rotate" class="screen"><div class="phone"></div><p>Turn your phone sideways to play</p></div>
 <pre id="debug"></pre>
 <script type="module" src="/src/main.ts"></script>
 </body>

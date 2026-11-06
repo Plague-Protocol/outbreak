@@ -4,6 +4,7 @@ import {
   Vector3,
 } from 'three';
 import { MeshBuilder } from './mesh';
+import { weather } from './weather';
 import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
 import { VEHICLES } from '../core/config';
 import type { GunKind, MeleeKind, PickupKind, Store, Vehicle, VehicleKind, WeaponKind } from '../core/types';
@@ -44,7 +45,7 @@ export function vehicleMesh(v: Vehicle): Group {
   g.facade('x-', -L / 2 - 0.03, -W * 0.42, -W * 0.25, 0.75, 0.95, 0xb01818); // tail lights
   g.facade('x-', -L / 2 - 0.03, W * 0.25, W * 0.42, 0.75, 0.95, 0xb01818);
   const group = new Group();
-  const body = new Mesh(b.build(), new MeshLambertMaterial({ vertexColors: true }));
+  const body = new Mesh(b.build(), weather(new MeshLambertMaterial({ vertexColors: true })));
   body.name = 'body';
   const lights = new Mesh(g.build(), new MeshBasicMaterial({ vertexColors: true }));
   lights.name = 'lights';

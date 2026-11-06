@@ -3,6 +3,7 @@ import {
   MeshLambertMaterial, Object3D, PlaneGeometry, ReplaceStencilOp, Vector3,
 } from 'three';
 import { MeshBuilder } from './mesh';
+import { weather } from './weather';
 import { BLOCKS, PITCH, STREET } from '../core/map';
 import { createRng, chance, int, next, pick, range } from '../core/rng';
 import type { Building, MapData } from '../core/types';
@@ -347,6 +348,7 @@ export function buildCity(map: MapData, seed: number): CityMeshes {
           const w0 = a0 + c * step + step * 0.25, w1 = w0 + step * 0.5;
           if (chance(rng, lit * 0.6)) g.facade(face, plane + (face[1] === '+' ? 0.01 : -0.01), w0, w1, y0, y0 + 1.5, pick(rng, [0xffd27a, 0xffc36a, 0xc9d9ff]));
           else s.facade(face, plane, w0, w1, y0, y0 + 1.5, burned || chance(rng, 0.15) ? 0x070809 : 0x14171c);
+          if (f === 1 && face === 'z+' && c === 0 && chance(rng, 0.25)) smear(s, w0, plane + 0.005);
           if (burned && chance(rng, 0.35)) s.facade(face, plane + (face[1] === '+' ? 0.005 : -0.005), w0 - 0.2, w1 + 0.2, y0 + 1.5, y0 + 2.6, 0x0a0908); // soot above the window
         }
       }
@@ -381,8 +383,31 @@ export function buildCity(map: MapData, seed: number): CityMeshes {
       if (boarded) for (const y of [1.4, 1.75, 2.05]) s.box(cx + ox, y, b.y + b.h + 0.06, 1.3, 0.16, 0.05, plank);
       if (burned) s.facade('z+', b.y + b.h + 0.025, cx + ox - 0.8, cx + ox + 0.8, 2.2, 3.2, 0x0a0908); // soot
     }
-    if (boarded) { s.box(cx, 1.0, b.y + b.h + 0.07, 1.2, 0.16, 0.05, plank); s.box(cx, 1.5, b.y + b.h + 0.07, 1.2, 0.16, 0.05, plank); }
+    if (boarded) {
+      s.box(cx, 1.0, b.y + b.h + 0.07, 1.2, 0.16, 0.05, plank);
+      s.box(cx, 1.5, b.y + b.h + 0.07, 1.2, 0.16, 0.05, plank);
+      if (chance(rng, 0.7)) sprayX(s, cx, 1.35, b.y + b.h + 0.11);
+    }
+    if (!burned && chance(rng, 0.18)) smear(s, cx + range(rng, -b.w * 0.4, b.w * 0.2), b.y + b.h + 0.025);
     s.facade('x+', b.x + b.w + 0.02, cz - 0.6, cz + 0.6, 1.2, 2.2, 0x14171c);
+  }
+
+  /** The orange X a search team sprays on a door they have checked (on a z+ face). */
+  function sprayX(s: MeshBuilder, x: number, y: number, z: number): void {
+    for (const a of [0.75, -0.75]) {
+      const m = s.mark();
+      s.box(x, y, z, 1.1, 0.08, 0.01, 0xd8692a);
+      s.tiltZ(m, a, x, y);
+    }
+  }
+
+  /** A dark smear of blood at hand height on a z+ wall, with a couple of drips. */
+  function smear(s: MeshBuilder, x: number, z: number): void {
+    s.facade('z+', z, x, x + range(rng, 0.5, 1.1), range(rng, 0.7, 1.0), range(rng, 1.2, 1.6), 0x3a0707);
+    for (let k = 0; k < 2; k++) {
+      const dx = x + range(rng, 0.1, 0.5);
+      s.facade('z+', z + 0.002, dx, dx + 0.06, range(rng, 0.25, 0.6), 0.9, 0x340606);
+    }
   }
 
   function car(b: Building, wreck: boolean): void {
@@ -422,11 +447,11 @@ export function buildCity(map: MapData, seed: number): CityMeshes {
     if (!dead) lights.push({ pos: new Vector3(ax, b.height - 0.5, az), color: 0xffcf8a, kind: 'lamp', broken });
   }
 
-  const solidMat = new MeshLambertMaterial({
+  const solidMat = weather(new MeshLambertMaterial({
     vertexColors: true,
     // mark pixels for the player's x-ray silhouette (drawn only where the city hides them)
     stencilWrite: true, stencilRef: 1, stencilFunc: AlwaysStencilFunc, stencilZPass: ReplaceStencilOp,
-  });
+  }));
   const glowMat = new MeshBasicMaterial({ vertexColors: true });
   const group = new Group();
   let triangles = 0;

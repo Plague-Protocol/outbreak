@@ -1,0 +1,10 @@
+{
+  "name": "Outbreak",
+  "short_name": "Outbreak",
+  "description": "Get to the last evacuation helicopter out of Port Halden.",
+  "start_url": "/",
+  "display": "fullscreen",
+  "orientation": "landscape",
+  "background_color": "#06080c",
+  "theme_color": "#06080c"
+}
