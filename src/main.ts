@@ -1,6 +1,7 @@
 import { createGame, step, type GameState } from './core/state';
 import type { GameEvent } from './core/types';
 import { GameView } from './render/view';
+import { loadCharacterAssets } from './render/characters';
 import { Controls } from './input/controls';
 import { Hud } from './ui/hud';
 import { anonymousSession } from './seams/session';
@@ -15,7 +16,10 @@ let seed = params.has('seed') ? Number(params.get('seed')) >>> 0 : newSeed();
 let state: GameState = createGame(seed);
 let ended = false;
 
-const view = new GameView(document.getElementById('game')!);
+const loading = document.getElementById('loading')!;
+const assets = await loadCharacterAssets().catch((e) => { loading.textContent = `Failed to load: ${e}`; throw e; });
+loading.remove();
+const view = new GameView(document.getElementById('game')!, assets);
 const controls = new Controls(document.getElementById('game')!, document.getElementById('stick')!, document.getElementById('knob')!);
 const hud = new Hud(() => {
   seed = newSeed();
@@ -25,6 +29,7 @@ const hud = new Hud(() => {
 });
 const debugEl = document.getElementById('debug')!;
 const debug = params.has('debug');
+if (debug) Object.defineProperty(window, '__outbreak', { get: () => ({ state }) }); // test hook for perf measurement
 
 function finish(): void {
   ended = true;

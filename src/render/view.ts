@@ -1,13 +1,14 @@
 import {
-  AmbientLight, GreaterDepth, BoxGeometry, Color, CylinderGeometry, DirectionalLight, InstancedMesh, Matrix4, Mesh,
+  AlwaysStencilFunc, ReplaceStencilOp, AmbientLight, BoxGeometry, Color, CylinderGeometry, DirectionalLight, InstancedMesh, Matrix4, Mesh,
   MeshBasicMaterial, MeshLambertMaterial, Object3D, OrthographicCamera, Scene, Vector3, WebGLRenderer,
 } from 'three';
 import { MeshBuilder } from './mesh';
+import { Actor, type CharacterAssets } from './characters';
 import { currentTask, requiredDone, type GameState } from '../core/state';
-import { TASK_RADIUS, SAFEHOUSE_RADIUS, ZOMBIE_CAP } from '../core/config';
+import { TASK_RADIUS, SAFEHOUSE_RADIUS } from '../core/config';
 import type { Vec2 } from '../core/types';
 
-const VIEW_MIN_UNITS = 24; // visible world width/height on the shorter screen axis
+const VIEW_MIN_UNITS = Number(new URLSearchParams(location.search).get('zoom')) || 20; // visible world width/height on the shorter screen axis (?zoom= for debugging)
 const CAM_DIST = 40;
 const CAM_DIR = new Vector3(1, 1, 1).normalize();
 
@@ -16,10 +17,8 @@ export class GameView {
   private scene = new Scene();
   private camera = new OrthographicCamera(-1, 1, 1, -1, 1, 200);
   private city!: Mesh;
-  private player: Mesh;
-  private playerXray: Mesh;
-  private zombies: InstancedMesh;
-  private zombieXray: InstancedMesh;
+  private player: Actor;
+  private zombies = new Map<number, Actor>();
   private pads: InstancedMesh;
   private beams: InstancedMesh;
   private target = new Vector3();
@@ -28,9 +27,9 @@ export class GameView {
   private colorTmp = new Color();
   private seed = -1;
 
-  constructor(private container: HTMLElement) {
+  constructor(private container: HTMLElement, private assets: CharacterAssets) {
     const dprCap = Number(new URLSearchParams(location.search).get('dpr')) || 2;
-    this.renderer = new WebGLRenderer({ antialias: false, powerPreference: 'high-performance' });
+    this.renderer = new WebGLRenderer({ antialias: false, stencil: true, powerPreference: 'high-performance' });
     this.renderer.setPixelRatio(Math.min(window.devicePixelRatio, dprCap));
     this.renderer.setClearColor(0x111418);
     container.appendChild(this.renderer.domElement);
@@ -40,37 +39,8 @@ export class GameView {
     sun.position.set(-6, 14, 9);
     this.scene.add(sun);
 
-    // Player: body + head + visor, one merged mesh
-    const pg = new MeshBuilder()
-      .box(0, 0.55, 0, 0.7, 1.1, 0.5, 0x3d7bd9)
-      .box(0, 1.35, 0, 0.5, 0.5, 0.5, 0xe8c9a0)
-      .box(0, 1.4, 0.26, 0.4, 0.18, 0.04, 0x1b1f27)
-      .build();
-    this.player = new Mesh(pg, new MeshLambertMaterial({ vertexColors: true }));
-    this.scene.add(this.player);
-    // silhouettes drawn only where something is hidden behind a building
-    const xray = (color: number) => new MeshBasicMaterial({
-      color, depthFunc: GreaterDepth, depthWrite: false, transparent: true, opacity: 0.5,
-    });
-    this.playerXray = new Mesh(pg, xray(0x7fb8ff));
-    this.scene.add(this.playerXray);
-
-    // Zombies: instanced, one draw call. Arms out front (+z is forward).
-    const zg = new MeshBuilder()
-      .box(0, 0.55, 0, 0.7, 1.1, 0.5, 0x59703a)
-      .box(0, 1.3, 0.04, 0.5, 0.5, 0.5, 0x8aa35a)
-      .box(-0.45, 0.95, 0.4, 0.18, 0.18, 0.8, 0x8aa35a)
-      .box(0.45, 0.95, 0.4, 0.18, 0.18, 0.8, 0x8aa35a)
-      .build();
-    this.zombies = new InstancedMesh(zg, new MeshLambertMaterial({ vertexColors: true }), ZOMBIE_CAP);
-    this.zombies.frustumCulled = false;
-    this.zombies.count = 0;
-    this.scene.add(this.zombies);
-    this.zombieXray = new InstancedMesh(zg, xray(0xff6a5a), ZOMBIE_CAP);
-    this.zombieXray.instanceMatrix = this.zombies.instanceMatrix; // share transforms
-    this.zombieXray.frustumCulled = false;
-    this.zombieXray.count = 0;
-    this.scene.add(this.zombieXray);
+    this.player = new Actor(assets, 'humanMaleA', true);
+    this.scene.add(this.player.root);
 
     // Task + safehouse markers: ground pad and tall beacon, instanced (max 6 tasks + safehouse)
     const markerMat = new MeshBasicMaterial();
@@ -109,7 +79,10 @@ export class GameView {
       const roof = base.clone().offsetHSL(0, 0, 0.08);
       b.box(bl.x + bl.w / 2, bl.height / 2, bl.y + bl.h / 2, bl.w, bl.height, bl.h, base.getHex(), roof.getHex());
     }
-    this.city = new Mesh(b.build(), new MeshLambertMaterial({ vertexColors: true }));
+    this.city = new Mesh(b.build(), new MeshLambertMaterial({
+      vertexColors: true,
+      stencilWrite: true, stencilRef: 1, stencilFunc: AlwaysStencilFunc, stencilZPass: ReplaceStencilOp, // mark building pixels for the x-ray pass
+    }));
     this.scene.add(this.city);
   }
 
@@ -129,6 +102,8 @@ export class GameView {
   render(s: GameState, dt: number, time: number): void {
     if (s.seed !== this.seed) {
       this.seed = s.seed;
+      for (const a of this.zombies.values()) this.scene.remove(a.root);
+      this.zombies.clear();
       this.buildCity(s);
       this.focus.set(s.player.pos.x, 0, s.player.pos.y);
     }
@@ -139,27 +114,26 @@ export class GameView {
     this.camera.position.copy(this.focus).addScaledVector(CAM_DIR, CAM_DIST);
     this.camera.lookAt(this.focus);
 
-    // player (bob while running)
+    // characters (skinned, animated). Far-away zombies skip animation work.
     const p = s.player.pos;
-    this.player.position.set(p.x, Math.abs(Math.sin(time * 12)) * 0.05, p.y);
-    this.player.rotation.y = Math.PI / 2 - s.player.heading;
-    this.player.visible = s.phase !== 'lost' || s.lossReason !== 'caught';
-    this.playerXray.visible = this.player.visible;
-    this.playerXray.position.copy(this.player.position);
-    this.playerXray.rotation.copy(this.player.rotation);
-
-    // zombies
-    const zs = s.zombies;
-    this.zombies.count = zs.length;
-    this.zombieXray.count = zs.length;
-    for (let i = 0; i < zs.length; i++) {
-      const z = zs[i]!;
-      this.tmp.position.set(z.pos.x, Math.abs(Math.sin(time * 7 + z.id)) * 0.08, z.pos.y);
-      this.tmp.rotation.set(0.12, Math.PI / 2 - z.heading, 0);
-      this.tmp.updateMatrix();
-      this.zombies.setMatrixAt(i, this.tmp.matrix);
+    this.player.root.visible = s.phase !== 'lost' || s.lossReason !== 'caught';
+    this.player.update(p.x, p.y, Math.PI / 2 - s.player.heading, dt, true);
+    const alive = new Set<number>();
+    for (const z of s.zombies) {
+      alive.add(z.id);
+      let a = this.zombies.get(z.id);
+      if (!a) {
+        a = new Actor(this.assets, z.id % 2 === 0 ? 'zombieMaleA' : 'zombieFemaleA');
+        this.zombies.set(z.id, a);
+        this.scene.add(a.root);
+      }
+      const near = Math.abs(z.pos.x - this.focus.x) + Math.abs(z.pos.y - this.focus.z) < 26;
+      a.root.visible = near;
+      a.update(z.pos.x, z.pos.y, Math.PI / 2 - z.heading, dt, near);
     }
-    this.zombies.instanceMatrix.needsUpdate = true;
+    for (const [id, a] of this.zombies) {
+      if (!alive.has(id)) { this.scene.remove(a.root); this.zombies.delete(id); }
+    }
 
     this.updateMarkers(s, time);
     this.renderer.render(this.scene, this.camera);

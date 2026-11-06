@@ -31,15 +31,23 @@ objective is. Reach the green safehouse with every required task done.
 - `src/input/`, `src/ui/` controls and HUD (plain DOM).
 - `src/seams/` empty interfaces for sign-in (`AuthSession`) and progress (`ProgressStore`).
 
+## Characters
+
+Player and zombies are rigged, animated low-poly people (Kenney "Animated Characters 3", CC0;
+see `public/assets/characters/CREDITS.md`). `tools/convert-characters.mjs` turned the FBX into one
+GLB (Idle + Run clips); skins are four 256x256 PNGs. Zombies use the zombie skins, the player a
+human skin. Style is stylized (large head), not realistic proportions.
+
 ## Performance budget
 
 | | Budget | Measured |
 |---|---|---|
-| Draw calls | ≤ 25 | 7 |
-| Triangles | ≤ 10,000 | ~1,050 at start, ~2,200 with the 14-zombie cap |
-| Textures | 0 | 0 (vertex colours) |
-| JS bundle (gzip) | ≤ 200 KB | 140 KB (three.js is most of it) |
-| Sim step, 14 zombies | n/a | avg 0.007 ms, worst 0.9 ms (path refresh) on a laptop |
+| Draw calls (worst: player + 14 zombies + city in view) | <= 25 | 19 |
+| Triangles (same worst case) | <= 30,000 | ~26,400 (about 1,600 per character) |
+| Textures | small | 4 skins at 256x256 plus one tiny bone texture per character |
+| JS bundle (gzip) | <= 200 KB | 166 KB |
+| Character assets (download) | <= 400 KB | ~270 KB (GLB 123 KB gzip + 4 PNGs ~144 KB) |
 
-Measured by `?debug` (`renderer.info`) in headless desktop Chrome and a Node timing run.
-Not yet measured on a real Android phone.
+Measured with `?debug` (`renderer.info`) in headless desktop Chrome, using a stress hook that
+puts 14 zombies on screen. Not yet measured on a real Android phone; that is the remaining risk
+(skinned animation cost for 15 characters). Zombies far off screen skip animation.
