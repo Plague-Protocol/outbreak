@@ -61,6 +61,16 @@
       "loop": true,
       "groundSpeed": 0
     },
+    "Swing": {
+      "duration": 0.433,
+      "loop": false,
+      "groundSpeed": 0
+    },
+    "Swing2": {
+      "duration": 0.533,
+      "loop": false,
+      "groundSpeed": 0
+    },
     "ZIdle": {
       "duration": 1.333,
       "loop": true,

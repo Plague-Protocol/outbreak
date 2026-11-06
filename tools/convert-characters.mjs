@@ -80,6 +80,8 @@ const CLIPS = [
   ['Interact', 1, 'Interact', false, false],
   ['Kneel', 1, 'Fixing_Kneeling', true, false],
   ['Talk', 1, 'Idle_Talking_Loop', true, false],
+  ['Swing', 2, 'Sword_Regular_A', false, false], // melee: baton, bat, machete
+  ['Swing2', 2, 'Sword_Regular_B', false, false],
   ['ZIdle', 2, 'Zombie_Idle_Loop', true, false],
   ['ZWalk', 2, 'Zombie_Walk_Fwd_Loop', true, true],
   ['ZAttack', 2, 'Zombie_Scratch', false, false],
