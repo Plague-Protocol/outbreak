@@ -26,7 +26,7 @@ globalThis.FileReader = class {
 
 const [kenneyDir, ual1Path, ual2Path, outDir] = process.argv.slice(2);
 if (!outDir) { console.error('usage: convert-characters.mjs <kenney-dir> <UAL1.glb> <UAL2.glb> <out-dir>'); process.exit(1); }
-const FPS = 30;
+const FPS = 20; // keys are interpolated; 20/s is plenty at this camera distance
 
 // target bone -> [UAL1 bone, UAL2 bone]. Order matters: parents before children.
 const MAP = [
@@ -73,11 +73,9 @@ const CLIPS = [
   ['Jog', 1, 'Jog_Fwd_Loop', true, true],
   ['Sprint', 1, 'Sprint_Loop', true, true],
   ['Death', 1, 'Death01', false, false],
-  ['Hit', 1, 'Hit_Chest', false, false],
   ['Interact', 1, 'Interact', false, false],
   ['Kneel', 1, 'Fixing_Kneeling', true, false],
   ['Talk', 1, 'Idle_Talking_Loop', true, false],
-  ['Phone', 2, 'Idle_TalkingPhone_Loop', true, false],
   ['ZIdle', 2, 'Zombie_Idle_Loop', true, false],
   ['ZWalk', 2, 'Zombie_Walk_Fwd_Loop', true, true],
   ['ZAttack', 2, 'Zombie_Scratch', false, false],
@@ -174,7 +172,9 @@ function retarget(lib, srcName, outName, loop) {
     hp.toArray(pv, i * 3);
   }
   mixer.stopAllAction();
-  const tracks = MAP.map(([t]) => new QuaternionKeyframeTrack(`${t}.quaternion`, times, qv.get(t)));
+  // fingers are not visible at the game's camera distance: skip their tracks to keep the file small
+  const tracks = MAP.filter(([t]) => !/Hand(Index|Thumb)/.test(t))
+    .map(([t]) => new QuaternionKeyframeTrack(`${t}.quaternion`, times, qv.get(t)));
   tracks.push(new VectorKeyframeTrack('Hips.position', times, pv));
   const out = new AnimationClip(outName, clip.duration, tracks);
   out.userData = { loop };

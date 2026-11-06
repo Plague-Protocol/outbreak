@@ -3,49 +3,112 @@
 <head>
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover" />
-<meta name="theme-color" content="#111418" />
+<meta name="theme-color" content="#06080c" />
 <link rel="icon" href="data:," />
 <title>Outbreak</title>
 <style>
-  html, body { margin: 0; height: 100%; background: #111418; overflow: hidden; overscroll-behavior: none;
-    font-family: system-ui, sans-serif; color: #fff; user-select: none; -webkit-user-select: none; }
+  html, body { margin: 0; height: 100%; background: #06080c; overflow: hidden; overscroll-behavior: none;
+    font-family: system-ui, -apple-system, "Segoe UI", sans-serif; color: #eee; user-select: none; -webkit-user-select: none; }
   #game { position: fixed; inset: 0; touch-action: none; }
   canvas { display: block; width: 100%; height: 100%; }
-  #hud { position: fixed; top: env(safe-area-inset-top, 0); left: 0; right: 0; padding: 10px 14px; pointer-events: none;
-    display: flex; justify-content: space-between; align-items: flex-start; gap: 12px; text-shadow: 0 1px 3px #000; }
-  #timer { font-size: 34px; font-weight: 700; font-variant-numeric: tabular-nums; }
-  #timer.low { color: #ff5a4d; }
-  #task { font-size: 15px; text-align: right; max-width: 55%; line-height: 1.3; }
-  #task small { opacity: .75; display: block; }
-  #toast { position: fixed; top: 70px; left: 0; right: 0; text-align: center; font-weight: 600; pointer-events: none;
-    text-shadow: 0 1px 3px #000; opacity: 0; transition: opacity .3s; }
+  .layer { position: fixed; inset: 0; pointer-events: none; }
+  #vignette { background: radial-gradient(ellipse at center, rgba(0,0,0,0) 45%, rgba(0,0,0,.55) 80%, rgba(0,0,0,.85) 100%); }
+  #hurt { background: radial-gradient(ellipse at center, rgba(120,0,0,0) 35%, rgba(150,0,0,.6) 100%); opacity: 0; transition: opacity .25s; }
+  .bar { position: fixed; left: 0; right: 0; height: 0; background: #000; transition: height .9s ease; pointer-events: none; z-index: 5; }
+  #lb-top { top: 0; } #lb-bot { bottom: 0; }
+  body.cinema .bar { height: 11vh; }
+  body.cinema #hud, body.cinema #arrow, body.cinema #hold { opacity: 0; }
+
+  #hud { position: fixed; top: env(safe-area-inset-top, 0); left: 0; right: 0; padding: 12px 14px; pointer-events: none;
+    display: flex; justify-content: space-between; align-items: flex-start; gap: 12px; text-shadow: 0 1px 3px #000; transition: opacity .6s; z-index: 4; }
+  #clock small { display: block; font-size: 10px; letter-spacing: .18em; opacity: .7; }
+  #timer { font-size: 32px; font-weight: 700; font-variant-numeric: tabular-nums; letter-spacing: .02em; }
+  #timer.low { color: #ff4d3d; animation: pulse 1s infinite; }
+  @keyframes pulse { 50% { opacity: .55; } }
+  #task { font-size: 14px; text-align: right; max-width: 58%; line-height: 1.35; }
+  #task small { opacity: .7; display: block; font-size: 12px; margin-top: 2px; }
+  #mute { pointer-events: auto; margin-top: 6px; background: rgba(0,0,0,.35); border: 1px solid rgba(255,255,255,.2); color: #ddd;
+    border-radius: 6px; font-size: 12px; padding: 3px 8px; }
+
+  #arrow { position: fixed; top: 84px; left: 50%; transform: translateX(-50%); text-align: center; pointer-events: none; display: none;
+    text-shadow: 0 1px 3px #000; font-size: 11px; z-index: 4; transition: opacity .6s; }
+  #arrow-icon { display: block; font-size: 22px; color: #f2b630; line-height: 1; }
+  #hold { position: fixed; bottom: 26%; left: 50%; width: 120px; margin-left: -60px; height: 6px; border-radius: 3px;
+    background: rgba(255,255,255,.18); display: none; pointer-events: none; z-index: 4; }
+  #hold-bar { height: 100%; width: 0; border-radius: 3px; background: #f2b630; }
+
+  #subs { position: fixed; left: 50%; bottom: calc(13vh + env(safe-area-inset-bottom, 0)); transform: translateX(-50%); width: min(92vw, 640px);
+    text-align: center; pointer-events: none; z-index: 6; opacity: 0; transition: opacity .3s; }
+  #subs.on { opacity: 1; }
+  #subs .who { font-size: 11px; letter-spacing: .2em; text-transform: uppercase; color: #f2b630; margin-bottom: 4px; }
+  #subs .who.radio { color: #7fd38a; } #subs .who.narr { color: #9aa4b5; }
+  #subs .text { font-size: 17px; line-height: 1.45; text-shadow: 0 1px 4px #000, 0 0 12px #000; }
+  #subs .text.narr { font-style: italic; color: #d7dbe2; }
+  #skip { position: fixed; right: 14px; top: calc(11vh - 40px); z-index: 7; display: none; pointer-events: auto; background: none;
+    color: #aaa; border: 1px solid #555; border-radius: 6px; padding: 5px 12px; font-size: 13px; }
+  #tap-catcher { position: fixed; inset: 0; z-index: 5; display: none; }
+
+  #card { position: fixed; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; pointer-events: none;
+    opacity: 0; transition: opacity 1.2s; z-index: 6; text-align: center; }
+  #card.on { opacity: 1; }
+  #card h2 { margin: 0; font-size: 44px; letter-spacing: .35em; font-weight: 300; text-indent: .35em; }
+  #card p { margin: 10px 0 0; font-size: 13px; letter-spacing: .25em; text-transform: uppercase; opacity: .7; }
+
+  #toast { position: fixed; top: 120px; left: 0; right: 0; text-align: center; font-weight: 600; pointer-events: none; font-size: 14px;
+    text-shadow: 0 1px 3px #000; opacity: 0; transition: opacity .3s; z-index: 4; }
   #toast.on { opacity: 1; }
-  #arrow { position: fixed; top: 74px; left: 50%; transform: translateX(-50%); text-align: center; pointer-events: none; display: none;
-    text-shadow: 0 1px 3px #000; font-size: 11px; }
-  #arrow-icon { display: block; font-size: 22px; color: #f2c230; line-height: 1; }
-  #hold { position: fixed; bottom: 18%; left: 50%; width: 120px; margin-left: -60px; height: 8px; border-radius: 4px;
-    background: rgba(255,255,255,.2); display: none; pointer-events: none; }
-  #hold-bar { height: 100%; width: 0; border-radius: 4px; background: #f2c230; }
-  #stick { position: fixed; width: 110px; height: 110px; margin: -55px 0 0 -55px; border-radius: 50%;
-    border: 2px solid rgba(255,255,255,.35); background: rgba(255,255,255,.08); display: none; pointer-events: none; }
-  #knob { position: absolute; left: 35px; top: 35px; width: 40px; height: 40px; border-radius: 50%; background: rgba(255,255,255,.55); }
-  #overlay { position: fixed; inset: 0; display: none; align-items: center; justify-content: center; flex-direction: column;
-    gap: 10px; background: rgba(10,12,15,.78); text-align: center; padding: 20px; }
-  #overlay h1 { margin: 0; font-size: 42px; }
-  #overlay p { margin: 0; opacity: .85; }
-  #overlay button { margin-top: 14px; font-size: 20px; padding: 12px 28px; border: 0; border-radius: 10px; background: #e8ecef; color: #111; font-weight: 700; }
-  #debug { position: fixed; bottom: 4px; left: 6px; font: 11px monospace; color: #9f9; white-space: pre; pointer-events: none; }
+  #stick { position: fixed; width: 110px; height: 110px; margin: -55px 0 0 -55px; border-radius: 50%; z-index: 4;
+    border: 2px solid rgba(255,255,255,.3); background: rgba(255,255,255,.06); display: none; pointer-events: none; }
+  #knob { position: absolute; left: 35px; top: 35px; width: 40px; height: 40px; border-radius: 50%; background: rgba(255,255,255,.5); }
+
+  .screen { position: fixed; inset: 0; display: none; align-items: center; justify-content: center; flex-direction: column;
+    gap: 10px; text-align: center; padding: 24px; z-index: 8; }
+  #title { background: radial-gradient(ellipse at center, rgba(40,10,10,.55), rgba(0,0,0,.92)); display: flex; }
+  #title h1 { margin: 0; font-size: clamp(44px, 12vw, 88px); letter-spacing: .28em; text-indent: .28em; font-weight: 800; color: #e8e2d8;
+    text-shadow: 0 0 30px rgba(180,20,20,.6); }
+  #title p { margin: 0; opacity: .7; letter-spacing: .2em; text-transform: uppercase; font-size: 12px; }
+  #title button, #ending button { margin-top: 18px; font-size: 18px; padding: 12px 30px; border: 1px solid #c9c2b5; border-radius: 4px;
+    background: transparent; color: #eee; letter-spacing: .15em; text-transform: uppercase; }
+  #title button:disabled { opacity: .4; }
+  #title small { position: absolute; bottom: 14px; left: 0; right: 0; opacity: .4; font-size: 10px; }
+  #ending { background: rgba(0,0,0,.72); }
+  #ending h1 { margin: 0; font-size: clamp(34px, 9vw, 56px); letter-spacing: .3em; text-indent: .3em; font-weight: 300; }
+  #ending h1.won { color: #9ee6a8; } #ending h1.lost { color: #ff6a5a; }
+  #ending p { margin: 0; max-width: 560px; line-height: 1.55; opacity: .88; }
+  #ending .row { display: flex; gap: 12px; flex-wrap: wrap; justify-content: center; }
+  #ending .seed { font-size: 11px; opacity: .45; margin-top: 6px; }
+  #debug { position: fixed; bottom: 4px; left: 6px; font: 11px monospace; color: #9f9; white-space: pre; pointer-events: none; z-index: 9; }
 </style>
 </head>
 <body>
 <div id="game"></div>
-<div id="loading" style="position:fixed;inset:0;display:flex;align-items:center;justify-content:center;font-size:18px">Loading...</div>
-<div id="hud"><div id="timer">0:00</div><div id="task"></div></div>
-<div id="toast"></div>
+<div id="vignette" class="layer"></div>
+<div id="hurt" class="layer"></div>
+<div id="lb-top" class="bar"></div><div id="lb-bot" class="bar"></div>
+<div id="hud">
+  <div id="clock"><small>DOORS SEAL IN</small><div id="timer">0:00</div><button id="mute">Sound: on</button></div>
+  <div id="task"></div>
+</div>
 <div id="arrow"><span id="arrow-icon">&#9650;</span><small id="arrow-dist"></small></div>
 <div id="hold"><div id="hold-bar"></div></div>
+<div id="toast"></div>
+<div id="card"><h2 id="card-title"></h2><p id="card-sub"></p></div>
+<div id="subs"><div class="who" id="subs-who"></div><div class="text" id="subs-text"></div></div>
+<div id="tap-catcher"></div>
+<button id="skip">Skip &rsaquo;</button>
 <div id="stick"><div id="knob"></div></div>
-<div id="overlay"><h1 id="ov-title"></h1><p id="ov-text"></p><p id="ov-seed"></p><button id="ov-btn">Play again</button></div>
+<div id="title" class="screen">
+  <h1>OUTBREAK</h1>
+  <p>Night one &middot; Ebute Gardens, Lagos</p>
+  <button id="start" disabled>Loading&hellip;</button>
+  <small>Sound on. Drag anywhere to move (WASD on a keyboard). Stand on a marker to use it.</small>
+</div>
+<div id="ending" class="screen">
+  <h1 id="end-title"></h1>
+  <p id="end-text"></p>
+  <div class="row"><button id="retry">Try again</button><button id="new-night">New night</button></div>
+  <div class="seed" id="end-seed"></div>
+</div>
 <pre id="debug"></pre>
 <script type="module" src="/src/main.ts"></script>
 </body>

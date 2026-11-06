@@ -34,6 +34,8 @@ export const INTRO: { card: string; sub: string; lines: Line[] } = {
 interface Beat {
   /** Objective line in the HUD while this step is current. */
   objective: string;
+  /** Two or three words, for lists. */
+  short: string;
   /** Spoken when the step becomes current (a radio brief or a thought). */
   brief: string[];
   /** Spoken when it is done. */
@@ -43,46 +45,55 @@ interface Beat {
 const BEATS: Record<TaskId, Beat> = {
   map: {
     objective: 'Find the evacuation map in the abandoned police car',
+    short: 'the map',
     brief: [`${RADIO}|Police posted evacuation maps in their patrol cars. If you find one, the clinic is marked in red.`],
     done: [`${HERO}|Evacuation map, still on the dashboard. St. Agnes is circled in red. I know where I'm going.`],
   },
   key: {
     objective: 'Find the clinic key on the orderly',
+    short: 'the clinic key',
     brief: [`${RADIO}|The clinic's back door is locked from outside. An orderly went out for supplies with the key and never came back.`],
     done: [`${HERO}|Keys on a lanyard: "St. Agnes, back door". I'm sorry, my friend. Thank you.`],
   },
   power: {
     objective: 'Restore power at the street generator',
+    short: 'the generator',
     brief: [`${RADIO}|The clinic's gate runs on the street generator, and the grid is gone. Somebody has to start it by hand.`],
     done: [`${HERO}|Come on, come on... it catches. Lights all down the street. Every one of them heard that.`],
   },
   gate: {
     objective: 'Open the security gate',
+    short: 'the gate',
     brief: [`${HERO}|Power's on. Now the gate.`],
     done: [`${HERO}|The gate rolls back. Loud. Too loud. Move.`],
   },
   keycard: {
     objective: 'Take the keycard from the security guard',
+    short: 'the keycard',
     brief: [`${RADIO}|The clinic lift needs a security keycard. The guards on the night shift carried them.`],
     done: [`${HERO}|He didn't make it to the door. His keycard did.`],
   },
   radio: {
     objective: 'Get the clinic frequency from the radio in the shop',
+    short: 'the radio',
     brief: [`${RADIO}|...the clinic only opens to people who call in first. The door frequency is on a card by the till at the corner shop...`],
     done: [`${HERO}|St. Agnes, this is Tolu. I'm coming in on foot. Please, keep the door for me.`, 'Clinic|We hear you, Tolu. Come to the back. Hands where we can see them.'],
   },
   fuel: {
     objective: 'Optional: siphon fuel from the wrecks (costs time)',
+    short: 'fuel',
     brief: [],
     done: [`${HERO}|A jerrycan of petrol for the clinic generator, and a sugar bar from the glovebox. My legs feel lighter.`],
   },
   medkit: {
     objective: 'Optional: gather medical supplies (costs time)',
+    short: 'medical supplies',
     brief: [],
     done: [`${HERO}|Bandages, painkillers, and ammonia. They hate the smell. They'll come slower now.`],
   },
   rescue: {
     objective: 'Optional: help the survivor hiding in the shop (costs time)',
+    short: 'the survivor',
     brief: [],
     done: ['Bisi|You came back for me? God bless you. Go, go. I will lock myself in until morning.', `${HERO}|Bisi gave me her savings. "Buy something good when this is over."`],
   },
@@ -90,6 +101,10 @@ const BEATS: Record<TaskId, Beat> = {
 
 export function objectiveFor(id: TaskId): string {
   return BEATS[id].objective;
+}
+
+export function shortName(id: TaskId): string {
+  return BEATS[id].short;
 }
 
 export function briefFor(id: TaskId): Line[] {

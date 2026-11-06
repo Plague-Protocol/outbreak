@@ -118,8 +118,12 @@ Real-money earnings wait until there is a funded source for them.
 
 ## Stage 1 technical plan
 
-- **Rendering:** low-poly 3D, flat-shaded, locked isometric camera (reads as 2.5D).
-  Three.js. No Unity WebGL — download size is too large for MiniPay.
+- **Rendering:** low-poly 3D, three.js. Camera: fixed-angle perspective follow camera (yaw locked
+  at 45 degrees, steeper than isometric, cinematic dolly in the intro), so touch controls stay
+  simple. Night, fog, flashlight, a few pooled street lights. No Unity WebGL: download size is too
+  large for MiniPay.
+- **Story:** told like Eko Lockdown (title card, cutscene, speaker lines, radio briefs, endings),
+  wrapped around the seeded task chain. Text in `src/core/story.ts`.
 - **Budget:** small texture budget; test on a mid-range Android phone inside MiniPay.
 - **Randomization:** deterministic seed → task/item placement. Same function runs in the
   browser now and on the server in phase 2, so phase 2 doesn't rewrite it.
