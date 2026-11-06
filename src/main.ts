@@ -53,9 +53,9 @@ startBtn.disabled = false;
 startBtn.textContent = 'Begin';
 // Phones play in landscape. Where the browser allows it (Android, from a tap), go full screen and
 // lock the orientation; everywhere else a "turn your phone" screen covers portrait and the game waits.
-const touch = matchMedia('(pointer: coarse)').matches;
+const touch = document.documentElement.classList.contains('mobile'); // set in index.html
 const portrait = matchMedia('(orientation: portrait)');
-const upright = () => touch && portrait.matches;
+const upright = () => touch && (portrait.matches || window.innerHeight > window.innerWidth);
 async function goLandscape(): Promise<void> {
   if (!touch) return;
   try {

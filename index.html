@@ -8,6 +8,15 @@
 <meta name="apple-mobile-web-app-capable" content="yes" />
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
 <link rel="manifest" href="/manifest.webmanifest" />
+<script>
+  // Phones and small tablets play sideways. Decided before anything loads, so even the loading and
+  // title screens ask to rotate: a touch screen whose short side is phone-sized.
+  (function () {
+    var touch = (navigator.maxTouchPoints || 0) > 0 || 'ontouchstart' in window || matchMedia('(pointer: coarse)').matches;
+    var small = Math.min(screen.width, screen.height) <= 900;
+    if (touch && small) document.documentElement.classList.add('mobile');
+  })();
+</script>
 <link rel="icon" href="data:," />
 <title>Outbreak</title>
 <style>
@@ -155,7 +164,7 @@
   #rotate .phone { width: 46px; height: 80px; border: 3px solid #ddd; border-radius: 9px; animation: turn 2.2s ease-in-out infinite; }
   #rotate p { margin: 18px 0 0; font-size: 15px; letter-spacing: .08em; opacity: .85; }
   @keyframes turn { 0%, 25% { transform: rotate(0); } 55%, 100% { transform: rotate(-90deg); } }
-  @media (orientation: portrait) and (pointer: coarse) { #rotate { display: flex; } }
+  @media (orientation: portrait) { html.mobile #rotate { display: flex; } }
   /* landscape on a phone: a short screen, so a tighter HUD that keeps clear of the thumbs */
   @media (max-height: 500px) {
     #hud { padding: 8px 12px; }
