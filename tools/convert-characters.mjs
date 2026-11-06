@@ -158,7 +158,9 @@ function retarget(lib, srcName, outName, loop) {
   for (let i = 0; i < n; i++) {
     const time = Math.min(clip.duration, (i / (n - 1)) * clip.duration);
     times[i] = time;
-    mixer.setTime(time);
+    // a looping action wraps exactly at its duration back to frame 0, which would make one-shot
+    // clips (Death, Hit, ZRise) snap back to their first pose on the last key: sample just before
+    mixer.setTime(Math.min(time, clip.duration - 1e-4));
     scene.updateMatrixWorld(true);
     const newWorld = new Map();
     for (const [t] of MAP) {

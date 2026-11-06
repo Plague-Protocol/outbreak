@@ -9,7 +9,7 @@
     "Walk": {
       "duration": 1.333,
       "loop": true,
-      "groundSpeed": 126.889
+      "groundSpeed": 126.89
     },
     "Jog": {
       "duration": 0.933,
