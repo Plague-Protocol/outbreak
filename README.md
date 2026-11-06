@@ -1,23 +1,11 @@
 # Outbreak (working name)
 
-A browser game: survivors in a zombie-overrun city race a countdown to a safehouse.
-Separate from the live [Plague Protocol](../plague-celo) game, which this does not modify.
+A browser game: a virus has emptied Port Halden, and the last evacuation helicopter leaves on
+schedule. Find what you need, arm yourself, find a ride, and get to the evac point before it
+lifts off. Separate from the live [Plague Protocol](../plague-celo) game, which this does not modify.
 
-Status: phase 1 first slice (one city, one level, no sign-in, no backend, no wallet).
+Status: phase 1 slice (one city, single player, no sign-in, no backend, no wallet).
 Design: [docs/DESIGN.md](docs/DESIGN.md).
-
-## The story
-
-Night one, Ebute Gardens, Lagos mainland. For six weeks they called it Eko Fever; tonight the
-fevered got up and walked out into the city. You are Tolu. Ronke on Lockdown News 90.5 says St.
-Agnes Clinic is still taking survivors, until its doors seal. Each run picks its steps from a seeded
-pool (find the evacuation map, take the orderly's key, restart the street generator and open the
-gate, take the fallen guard's keycard, get the clinic frequency from the radio), with optional
-detours that cost time (fuel, medical supplies, a survivor hiding in a shop).
-
-It is told the way Eko Lockdown tells its story: a title card, a letterboxed intro, "Speaker|line"
-dialogue, radio briefs as each step comes up, radio calls as the night gets worse, and endings
-(SAFE, TAKEN, DOORS SEALED). The text lives in `src/core/story.ts`.
 
 ## Run
 
@@ -28,48 +16,73 @@ npm test           # unit tests
 npm run build      # typecheck + production build into dist/
 ```
 
-URL options: `?seed=123` fixed layout, `?debug` perf overlay (fps, draw calls, triangles),
-`?dpr=1.5` cap the pixel ratio.
+URL options: `?seed=123` fixed night, `?skipintro`, `?debug` perf overlay, `?dpr=1.5` cap the
+pixel ratio, `?lights=0..6` number of real point lights, `?zoom=N` camera span.
 
-Controls: WASD / arrows, or drag anywhere on the screen (floating stick) on touch devices. A light
-push walks, a full push runs. Stand in a ring to use it (yellow = required, blue = optional and
-costs time). The arrow points at the current objective. Zombies lunge when they reach you: keep
-running and the lunge misses. Walkers shuffle; later in the night, runners come.
-`?skipintro` skips the intro.
+## Playing
+
+- **Move:** drag anywhere (floating stick) or WASD. A light push walks, a full push runs.
+- **Fire:** hold FIRE (or Space). Aim assist picks the zombie in front of you. Gunfire is loud:
+  everything within earshot comes looking.
+- **Use:** the contextual button (or E): start an objective, search a supply crate, shop at
+  Halden Guns, get in or out of a vehicle. **Reload** (R) and **swap weapon** (Q) buttons.
+- **Drive:** push the stick where you want to go and the car steers there; push back against the
+  nose to reverse. Run zombies down. Crashes and clawing zombies damage the vehicle until it dies.
+- **Map:** the minimap (top right) is rotated to match the screen. Tap it or press M for the full
+  city map (pauses the game).
+- **Weapons:** you start with a pistol. A shotgun and an assault rifle lie somewhere in the
+  streets, with ammo boxes. Halden Guns sells guns, ammo and medkits for the money you get from
+  supply crates, the survivor, and kills.
+- **Health:** a lunge hurts and knocks you back; the third kills. Shoot a zombie during its
+  wind-up to spoil the lunge. Medkits heal.
+
+## The story
+
+Told the way Eko Lockdown tells its story: a title card, a letterboxed intro, "Speaker|line"
+dialogue, radio briefs as each step comes up, radio calls as the night gets worse, and endings
+(EVACUATED, TAKEN, LEFT BEHIND). Each night picks its steps from a seeded pool (evac map, gate key,
+generator and gate, keycard, radio frequency) with optional detours that cost time. Text lives in
+`src/core/story.ts`. Setting and names are invented so the game reads anywhere.
+
+## The city
+
+8 x 8 blocks (about 200 m across) generated from the seed: downtown towers, residential streets
+of houses and gardens, a park, docklands with warehouses and shipping containers on the harbour,
+piers, and desolate outskirts with wrecks, dead trees and an abandoned gas station. Zombies rest
+across the city (denser downtown); only those near you are simulated, and waves rise from just
+out of sight as the clock runs down.
 
 ## Layout
 
-- `src/core/` pure game logic: seeded RNG, map, task chain, state/step, story text. No DOM, no
-  three.js, no wall clock, no `Math.random` (a test enforces this) so it can move to a server in
-  phase 2. Zombie actions (rise, chase, lunge, feed) are decided here; the renderer only shows them.
-- `src/render/` three.js view; only reads `GameState`. `city.ts` builds the night city in code
-  (streets, windows, water tanks, cars and danfos, barricades, fire barrels, street lamps).
-- `src/audio/` sound synthesised in code with Web Audio (wind, sirens, groans, footsteps, heartbeat).
-- `src/input/`, `src/ui/` controls, HUD, dialogue (plain DOM).
+- `src/core/` pure game logic: RNG, city, task chain, state/step (movement, vehicles, weapons,
+  zombies), story text. No DOM, no three.js, no wall clock, no `Math.random` (a test enforces this)
+  so it can move to a server in phase 2.
+- `src/render/` three.js view; only reads `GameState`. `city.ts` builds the city in chunks
+  (culled when off screen), `props.ts` vehicles, guns, the store, the evac helicopter and effects.
+- `src/audio/` sound synthesised in code with Web Audio (wind, sirens, groans, gunshots, engine).
+- `src/input/`, `src/ui/` controls, HUD, dialogue, store, minimap and city map (plain DOM/canvas).
 - `src/seams/` empty interfaces for sign-in (`AuthSession`) and progress (`ProgressStore`).
 
 ## Characters and animation
 
 Bodies and skins: Kenney "Animated Characters 3" (CC0). Animations: Quaternius "Universal
-Animation Library" 1 and 2 (CC0): idle, walk, jog, sprint, death, interact, kneel, talk, and the
-zombie idle, shuffle, lunge and rise. `tools/convert-characters.mjs` retargets them onto the Kenney
-skeleton and measures how fast each walk/run cycle moves over the ground, so the game plays every
-cycle at exactly the speed the character is moving (no foot sliding). Credits:
-`public/assets/characters/CREDITS.md`. Preview every clip at `/tools/preview.html` while `npm run dev`
-is running.
+Animation Library" 1 and 2 (CC0): locomotion, death, hit, pistol aim/shoot/reload, interact,
+kneel, and the zombie idle, shuffle, lunge and rise. `tools/convert-characters.mjs` retargets them
+onto the Kenney skeleton and measures each walk/run cycle's ground speed so feet never slide. Gun
+poses play on the upper body only, over whatever the legs are doing. Credits:
+`public/assets/characters/CREDITS.md`. Preview clips at `/tools/preview.html` under `npm run dev`.
 
 ## Performance budget
 
-| | Budget | Measured (worst case: player + 14 zombies on screen) |
+| | Budget | Measured (worst case: 18 zombies around the player) |
 |---|---|---|
-| Draw calls | <= 25 | 23 |
-| Triangles | <= 30,000 | ~30,600 (characters are ~1,600 each; the city in view is ~4,000) |
-| Real lights | small | hemisphere + moon + flashlight + player fill + 3 pooled lamp/fire lights (`?lights=N`) |
-| Textures | small | 4 skins at 256x256, 2 tiny generated gradients, one bone texture per character |
-| JS bundle (gzip) | <= 200 KB | 177 KB |
-| Character assets (gzip) | <= 400 KB | ~386 KB (GLB 242 KB + 4 PNGs 144 KB) |
+| Draw calls | <= 30 | 28 (city chunks in view, 12 zombie characters, player, props) |
+| Triangles | <= 35,000 | ~29,600 |
+| Real lights | small | hemisphere + moon + flashlight/headlights + fill + 3 pooled + muzzle flash |
+| Zombie characters drawn | 12 nearest | the rest are simulated or dormant, not drawn |
+| JS bundle (gzip) | <= 200 KB | 192 KB |
+| Character assets (gzip) | <= 450 KB | ~411 KB (GLB 267 KB + 4 skins 144 KB) |
 
-Measured with `?debug` (`renderer.info`) in headless desktop Chrome using software rendering, with
-a stress hook that puts 14 zombies around the player, so the frame rates it shows mean nothing for
-a phone. **Not yet measured on a real Android phone.** The risks there are skinned animation for 15
-characters and the per-pixel lights; `?lights=0`, `?dpr=1` and a lower zombie cap are the levers.
+Measured with `?debug` (`renderer.info`) in headless desktop Chrome with software rendering, so
+the frame rates it shows mean nothing for a phone. **Not yet measured on a real Android phone.**
+The levers there: `?lights=0`, `?dpr=1`, fewer zombie characters drawn.
