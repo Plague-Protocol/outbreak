@@ -125,21 +125,33 @@ export class GameView {
     for (const m of [this.rings, this.beams, this.shadows]) { m.frustumCulled = false; m.count = 0; this.scene.add(m); }
     this.shadows.renderOrder = 1;
 
-    window.addEventListener('resize', () => this.resize());
+    // Phones report a rotation's new size late (iOS Safari fires `resize` before layout settles), so
+    // watch the container itself, and re-measure once more after an orientation change.
+    const again = () => { this.resize(); setTimeout(() => this.resize(), 350); };
+    window.addEventListener('resize', again);
+    window.addEventListener('orientationchange', again);
+    window.visualViewport?.addEventListener('resize', again);
+    if ('ResizeObserver' in window) new ResizeObserver(() => this.resize()).observe(this.container);
     this.resize();
   }
 
   private resize(): void {
     const w = this.container.clientWidth || window.innerWidth;
     const h = this.container.clientHeight || window.innerHeight;
-    this.renderer.setSize(w, h);
+    if (w === this.size.w && h === this.size.h) return;
+    this.size = { w, h };
+    // the canvas keeps its CSS size (100% of the container); only the drawing buffer follows
+    this.renderer.setSize(w, h, false);
     const aspect = w / h;
     this.camera.aspect = aspect;
     this.camera.updateProjectionMatrix();
-    // distance so the narrower axis shows VIEW_SPAN units at the focus point
+    // distance so the narrower axis shows VIEW_SPAN units at the focus point; a short phone screen
+    // in landscape comes in closer so the people are not specks
+    const span = Math.min(w, h) < 500 && !params.get('zoom') ? VIEW_SPAN * 0.8 : VIEW_SPAN;
     const tanV = Math.tan(((FOV / 2) * Math.PI) / 180);
-    this.distance = aspect < 1 ? VIEW_SPAN / (2 * tanV * aspect) : VIEW_SPAN / (2 * tanV);
+    this.distance = aspect < 1 ? span / (2 * tanV * aspect) : span / (2 * tanV);
   }
+  private size = { w: 0, h: 0 };
 
   /** Kick the camera (attacks, crashes, gunfire). */
   shake(amount: number): void {

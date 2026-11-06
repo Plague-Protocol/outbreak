@@ -15,6 +15,10 @@
     var touch = (navigator.maxTouchPoints || 0) > 0 || 'ontouchstart' in window || matchMedia('(pointer: coarse)').matches;
     var small = Math.min(screen.width, screen.height) <= 900;
     if (touch && small) document.documentElement.classList.add('mobile');
+    // an iPhone or iPad in the browser (not already opened from the Home Screen)
+    var ios = /iPhone|iPad|iPod/.test(navigator.userAgent) || (navigator.platform === 'MacIntel' && touch);
+    var standalone = navigator.standalone === true || matchMedia('(display-mode: standalone), (display-mode: fullscreen)').matches;
+    if (ios && !standalone) document.documentElement.classList.add('ios-browser');
   })();
 </script>
 <link rel="icon" href="data:," />
@@ -87,6 +91,10 @@
     background: transparent; color: #eee; letter-spacing: .15em; text-transform: uppercase; }
   #title button:disabled { opacity: .4; }
   #title small { position: absolute; bottom: 14px; left: 0; right: 0; opacity: .4; font-size: 10px; }
+  /* iPhone Safari cannot hide its bars from a web page; a Home Screen icon opens the game full screen */
+  #ios-tip { display: none; max-width: 440px; font-size: 12px; line-height: 1.45; color: #f2d58a; opacity: .9;
+    border: 1px solid rgba(242,213,138,.35); border-radius: 6px; padding: 6px 10px; margin-top: 4px; }
+  html.ios-browser #ios-tip { display: block; }
   #ending { background: rgba(0,0,0,.72); }
   #ending h1 { margin: 0; font-size: clamp(34px, 9vw, 56px); letter-spacing: .3em; text-indent: .3em; font-weight: 300; }
   #ending h1.won { color: #9ee6a8; } #ending h1.lost { color: #ff6a5a; }
@@ -167,15 +175,34 @@
   @media (orientation: portrait) { html.mobile #rotate { display: flex; } }
   /* landscape on a phone: a short screen, so a tighter HUD that keeps clear of the thumbs */
   @media (max-height: 500px) {
-    #hud { padding: 8px 12px; }
-    #timer { font-size: 24px; }
-    #task { font-size: 12px; max-width: 42%; }
-    #task small { font-size: 11px; }
-    #mute { margin-top: 4px; font-size: 11px; padding: 2px 7px; }
-    #minimap { width: 92px; height: 92px; top: calc(env(safe-area-inset-top, 0px) + 66px); }
-    #arrow { top: 58px; }
-    #toast { top: 64px; }
-    #subs { bottom: calc(12px + env(safe-area-inset-bottom, 0px)); width: min(38vw, 420px); }
+    /* side margins clear the notch and the rounded corners */
+    html { --l: max(10px, env(safe-area-inset-left, 0px)); --r: max(10px, env(safe-area-inset-right, 0px));
+      --b: max(8px, env(safe-area-inset-bottom, 0px)); }
+    #hud { padding: 6px var(--r) 0 var(--l); }
+    #timer { font-size: 22px; }
+    #clock small { font-size: 9px; }
+    #health { width: 96px; height: 6px; }
+    #funds { font-size: 12px; }
+    #vitals { margin-top: 4px; gap: 3px; }
+    /* the objective sits left of the minimap, which takes the top-right corner */
+    #task { font-size: 12px; max-width: 38%; margin-right: 88px; }
+    #task small { font-size: 10.5px; }
+    #mute { margin-top: 4px; font-size: 10px; padding: 2px 6px; }
+    #minimap { width: 80px; height: 80px; top: calc(env(safe-area-inset-top, 0px) + 6px); right: var(--r); }
+    #arrow { top: 54px; }
+    #toast { top: 60px; }
+    /* thumb cluster, bottom right: fire in the corner, the rest in an arc around it */
+    #btn-fire { width: 76px; height: 76px; right: calc(var(--r) + 8px); bottom: calc(var(--b) + 8px); font-size: 13px; }
+    #btn-reload { width: 44px; height: 44px; right: calc(var(--r) + 24px); bottom: calc(var(--b) + 96px); font-size: 16px; }
+    #btn-swap { width: 58px; height: 58px; right: calc(var(--r) + 80px); bottom: calc(var(--b) + 88px); font-size: 9px; }
+    #btn-swap b { font-size: 12px; }
+    #btn-use { width: 62px; height: 62px; right: calc(var(--r) + 96px); bottom: calc(var(--b) + 12px); font-size: 10px; }
+    #btn-throw { width: 50px; height: 50px; right: calc(var(--r) + 170px); bottom: calc(var(--b) + 18px); font-size: 8px; }
+    #btn-throw b { font-size: 12px; }
+    #subs { bottom: calc(var(--b) + 6px); left: 42%; width: min(36vw, 400px); }
+    #title small { padding: 0 var(--r) 0 var(--l); }
+    #title h1 { font-size: 52px; }
+    #title button { margin-top: 10px; }
     #subs .text { font-size: 14px; }
     body.cinema #subs { bottom: calc(12vh + env(safe-area-inset-bottom, 0px)); width: min(70vw, 640px); }
     #card h2 { font-size: 34px; }
@@ -224,6 +251,7 @@
   <h1>OUTBREAK</h1>
   <p>Day one &middot; Port Halden</p>
   <button id="start" disabled>Loading&hellip;</button>
+  <div id="ios-tip">For full screen on iPhone: tap Share (the square with an arrow), then <b>Add to Home Screen</b>, and play from the new icon.</div>
   <small>Sound on. Drag anywhere to move, buttons to fire and use. Keyboard: WASD, Space fire, E use, R reload, Q swap, M map.</small>
 </div>
 <div id="ending" class="screen">
