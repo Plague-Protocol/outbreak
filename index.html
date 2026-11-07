@@ -107,6 +107,7 @@
   #health-bar { height: 100%; width: 100%; background: #d9443a; transition: width .2s; }
   #funds { font-size: 13px; font-weight: 600; color: #9ee6a8; }
   #car-health { font-size: 11px; opacity: .8; display: none; }
+  #gear { font-size: 11px; font-weight: 600; color: #8cc4ff; display: none; }
   /* minimap: top right, under the objective */
   #minimap { position: fixed; right: 12px; top: calc(env(safe-area-inset-top, 0px) + 96px); width: 112px; height: 112px; z-index: 4;
     border-radius: 50%; pointer-events: auto; transition: opacity .6s; }
@@ -229,7 +230,7 @@
 <div id="lb-top" class="bar"></div><div id="lb-bot" class="bar"></div>
 <div id="hud">
   <div id="clock"><small>LAST EVAC IN</small><div id="timer">0:00</div>
-    <div id="vitals"><div id="health"><div id="health-bar"></div></div><div id="funds">$0</div><div id="car-health"></div></div>
+    <div id="vitals"><div id="health"><div id="health-bar"></div></div><div id="funds">$0</div><div id="gear"></div><div id="car-health"></div></div>
     <button id="mute">Sound: on</button></div>
   <div id="task"></div>
 </div>

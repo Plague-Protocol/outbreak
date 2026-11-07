@@ -6,8 +6,8 @@ import {
 import { Actor, type CharacterAssets, type ClipName } from './characters';
 import { buildCity, type CityMeshes, type LightSource } from './city';
 import { MeshBuilder } from './mesh';
-import { bottleMesh, Effects, Evac, glint, pickupMesh, pulseGlint, storefrontMesh, storyItem, vehicleMesh, weaponMesh, wreckVehicle } from './props';
-import { currentTask, gunStats, isGun, playerSpeed, playerVehicle, requiredDone, type GameState } from '../core/state';
+import { bottleMesh, Effects, Evac, gearMesh, glint, SubwayExit, pickupMesh, pulseGlint, storefrontMesh, storyItem, vehicleMesh, weaponMesh, wreckVehicle } from './props';
+import { currentTask, finalChapter, gunStats, isGun, isRevealed, playerSpeed, playerVehicle, requiredDone, type GameState } from '../core/state';
 import { ATTACK_WINDUP, MELEE, SAFEHOUSE_RADIUS, TASK_RADIUS } from '../core/config';
 import type { GameEvent, TaskId, Vec2, WeaponKind, Zombie } from '../core/types';
 
@@ -65,6 +65,8 @@ export class GameView {
   private pickups = new Map<number, Group>();
   private crates: InstancedMesh | null = null;
   private evac = new Evac();
+  private exitDoor = new SubwayExit();
+  private wornGear = { vest: false, helmet: false };
   private effects: Effects;
   private rings: InstancedMesh;
   private beams: InstancedMesh;
@@ -109,7 +111,7 @@ export class GameView {
     }
 
     this.player = new Actor(assets, 'humanMaleA', true);
-    this.scene.add(this.player.root, this.level, this.evac.group);
+    this.scene.add(this.player.root, this.level, this.evac.group, this.exitDoor.group);
     this.effects = new Effects(this.scene);
 
     // objective markers: a glowing ring on the ground and a faint shaft of light
@@ -227,6 +229,8 @@ export class GameView {
     this.scene.add(this.bottle);
     this.evac.group.position.set(s.safehouse.x, 0.1, s.safehouse.y);
     this.evac.reset();
+    this.exitDoor.group.position.set(s.safehouse.x, 0, s.safehouse.y);
+    this.exitDoor.group.rotation.y = (s.seed % 4) * (Math.PI / 2);
     this.wasCaught = false;
     this.player.play('Idle', { fade: 0 });
     this.player.setUpper(null);
@@ -502,8 +506,10 @@ export class GameView {
       this.bottle.rotation.set(this.time * 14, 0, this.time * 9);
     }
     for (const it of this.taskItems) {
-      const done = !!s.tasks.find((t) => t.id === it.task)?.done;
-      it.group.visible = it.whenDone ? done : !done;
+      const t = s.tasks.find((x) => x.id === it.task);
+      const done = !!t?.done;
+      // things to take only turn up once they are the objective
+      it.group.visible = it.whenDone ? done : !done && !!t && isRevealed(s, t);
       const gl = it.group.getObjectByName('glint');
       if (gl && it.group.visible) pulseGlint(gl, this.time, it.group.position.x * 0.13);
     }
@@ -518,8 +524,12 @@ export class GameView {
       this.crates.count = s.crates.length;
       this.crates.instanceMatrix.needsUpdate = true;
     }
-    this.evac.group.visible = s.safehouseKnown;
-    this.evac.update(dt, this.time, s.phase === 'won');
+    const final = finalChapter(s);
+    this.evac.group.visible = s.safehouseKnown && final;
+    this.exitDoor.group.visible = s.safehouseKnown && !final;
+    if (final) this.evac.update(dt, this.time, s.phase === 'won');
+    else this.exitDoor.update(this.time, requiredDone(s));
+    this.updateGear(s);
 
     // --- zombies: the nearest ones get a character; corpses fall and stay a while
     let shadowN = 0;
@@ -569,6 +579,17 @@ export class GameView {
     this.updateLights();
     this.updateMarkers(s);
     this.renderer.render(this.scene, this.camera);
+  }
+
+  /** Protective gear shows on the player while it lasts. */
+  private updateGear(s: GameState): void {
+    for (const g of ['vest', 'helmet'] as const) {
+      const on = s.arsenal.gear[g] > 0;
+      if (on === this.wornGear[g]) continue;
+      this.wornGear[g] = on;
+      // the helmet's rim sits around the middle of the head (its bone is at the neck)
+      this.player.wear(g === 'vest' ? 'chest' : 'head', on ? gearMesh(g) : null, new Vector3(0, g === 'vest' ? 0 : 0.36, 0));
+    }
   }
 
   /** The current gun sits in the right hand (parented to the hand bone, so it follows the arm). */
@@ -660,7 +681,7 @@ export class GameView {
     };
     s.tasks.forEach((t, i) => {
       const color = t.done ? 0x000000 : t.required ? 0xf2b630 : 0x3f9be6;
-      set(i, t.pos, TASK_RADIUS, color, cur === t, !t.done);
+      set(i, t.pos, TASK_RADIUS, color, cur === t, !t.done && isRevealed(s, t));
     });
     const open = requiredDone(s);
     set(s.tasks.length, s.safehouse, SAFEHOUSE_RADIUS, open ? 0x3ddc84 : 0xd9534f, s.safehouseKnown, s.safehouseKnown);

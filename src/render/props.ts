@@ -1,13 +1,13 @@
 import {
   AdditiveBlending, BoxGeometry, type Material, CanvasTexture, Color, ConeGeometry, DoubleSide, Group, InstancedMesh, Mesh,
-  MeshBasicMaterial, MeshLambertMaterial, Object3D, PlaneGeometry, PointLight, Scene, Sprite, SpriteMaterial, SRGBColorSpace,
+  MeshBasicMaterial, MeshLambertMaterial, Object3D, PlaneGeometry, PointLight, Scene, SphereGeometry, Sprite, SpriteMaterial, SRGBColorSpace,
   Vector3,
 } from 'three';
 import { MeshBuilder } from './mesh';
 import { weather } from './weather';
 import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
 import { VEHICLES } from '../core/config';
-import type { GunKind, MeleeKind, PickupKind, Store, Vehicle, VehicleKind, WeaponKind } from '../core/types';
+import type { GearKind, GunKind, MeleeKind, PickupKind, Store, Vehicle, VehicleKind, WeaponKind } from '../core/types';
 
 const PAINT = [0xd9d4c7, 0x9aa1a8, 0x7a1f1f, 0x1f3a5c, 0x1b1d20, 0x2f4a33, 0xc9a227, 0x5a2a5a];
 
@@ -185,22 +185,69 @@ function jerrycanMesh(): Mesh {
   return new Mesh(b.build(), new MeshLambertMaterial({ vertexColors: true, emissive: 0x0a0a0a }));
 }
 
+/**
+ * A tactical vest, built around the chest: origin at the middle of the torso, +z out of the front,
+ * +y up. Plates front and back, pouches, shoulder straps.
+ */
+export function vestMesh(): Mesh {
+  const body = 0x2f3a2c, plate = 0x39462f, strap = 0x22291f, pouch = 0x434f36;
+  const b = new MeshBuilder()
+    .box(0, 0, 0, 0.66, 0.62, 0.44, body, plate) // the shell
+    .box(0, 0.02, 0.235, 0.5, 0.5, 0.04, plate) // front plate
+    .box(0, 0.02, -0.235, 0.5, 0.5, 0.04, plate) // back plate
+    .box(-0.2, 0.33, 0, 0.12, 0.06, 0.46, strap) // shoulder straps
+    .box(0.2, 0.33, 0, 0.12, 0.06, 0.46, strap);
+  for (const x of [-0.17, 0, 0.17]) b.box(x, -0.16, 0.27, 0.13, 0.16, 0.06, pouch); // magazine pouches
+  b.box(0.15, 0.16, 0.265, 0.14, 0.1, 0.03, 0x1c201a); // radio pouch
+  b.box(0, -0.06, 0.258, 0.22, 0.05, 0.005, 0xc8c8b8); // a name tape
+  return new Mesh(b.build(), new MeshLambertMaterial({ vertexColors: true }));
+}
+
+/**
+ * A riot helmet sized for the characters' big heads (about 0.8 wide): origin at the rim, a dome over
+ * the top of the head, and a visor hanging down over the eyes in front (+z).
+ */
+export function helmetMesh(): Group {
+  const g = new Group();
+  const unit = new Group(); // built on a unit sphere, then squashed to the head's shape
+  const shell = new Mesh(new SphereGeometry(1, 16, 8, 0, Math.PI * 2, 0, Math.PI / 2), new MeshLambertMaterial({ color: 0x232b36 }));
+  const rim = new Mesh(new MeshBuilder().prism(0, 0, 0, 1.04, 0.08, 16, 0x161b22).build(), new MeshLambertMaterial({ vertexColors: true }));
+  const visor = new Mesh(new SphereGeometry(1.06, 14, 3, Math.PI / 2 - 1.05, 2.1, Math.PI / 2, 0.42),
+    new MeshLambertMaterial({ color: 0x9cc0dc, transparent: true, opacity: 0.4, emissive: 0x10222e, depthWrite: false }));
+  const stripe = new Mesh(new SphereGeometry(1.01, 4, 8, Math.PI / 2 - 0.12, 0.24, 0.05, Math.PI / 2 - 0.1), new MeshLambertMaterial({ color: 0xd8d2c4 }));
+  unit.add(shell, rim, visor, stripe);
+  unit.scale.set(0.47, 0.5, 0.42);
+  g.add(unit);
+  return g;
+}
+
+export function gearMesh(kind: GearKind): Object3D {
+  return kind === 'vest' ? vestMesh() : helmetMesh();
+}
+
 /** A pickup lying where someone dropped it: a gun on its side, an ammo can, bottles, a jerrycan;
  * with a glint. */
 export function pickupMesh(kind: PickupKind, yaw: number): Group {
   const g = new Group();
-  const item = kind === 'ammo' ? ammoMesh() : kind === 'bottles' ? bottlesMesh() : kind === 'jerrycan' ? jerrycanMesh() : weaponMesh(kind);
+  const item: Object3D = kind === 'ammo' ? ammoMesh() : kind === 'bottles' ? bottlesMesh() : kind === 'jerrycan' ? jerrycanMesh()
+    : kind === 'vest' || kind === 'helmet' ? gearMesh(kind) : weaponMesh(kind);
   if (kind === 'baton' || kind === 'bat' || kind === 'machete') {
     item.rotation.set(0, 0, Math.PI / 2); // lying along the ground
     item.position.y = 0.07;
   } else if (kind === 'pistol' || kind === 'shotgun' || kind === 'rifle') {
     item.rotation.set(Math.PI / 2, 0, 0); // on its side, flat on the ground
     item.position.y = 0.05;
+  } else if (kind === 'vest') {
+    item.rotation.set(-Math.PI / 2, 0, 0.3); // dropped flat on its back
+    item.position.y = 0.24;
+  } else if (kind === 'helmet') {
+    item.rotation.set(0.25, 0, 0.15); // tipped on its rim
+    item.position.y = 0.02;
   }
   const holder = new Group();
   holder.rotation.y = yaw;
   holder.add(item);
-  g.add(holder, glint(kind === 'ammo' || kind === 'jerrycan' ? 0.75 : kind === 'bottles' ? 0.6 : 0.3));
+  g.add(holder, glint(kind === 'ammo' || kind === 'jerrycan' || kind === 'vest' ? 0.75 : kind === 'bottles' || kind === 'helmet' ? 0.6 : 0.3));
   return g;
 }
 
@@ -452,6 +499,61 @@ function signCanvas(name: string): HTMLCanvasElement {
 }
 
 /** The evac point: a helipad ringed with sandbags and floodlights, and the helicopter overhead. */
+/**
+ * The way into the next district: a subway entrance. Stairs going down into the dark between
+ * railings, a lit sign on a post, and a shutter that stays down until you have everything.
+ */
+export class SubwayExit {
+  readonly group = new Group();
+  private shutter: Mesh;
+  private sign: MeshBasicMaterial;
+  private glow: Mesh;
+
+  constructor() {
+    const b = new MeshBuilder();
+    // the stairwell, drawn on the street: a black pit with steps catching less light the deeper they go
+    b.box(0, 0.02, 0, 3.2, 0.04, 5, 0x050607);
+    for (let k = 0; k < 7; k++) {
+      const shade = new Color(0x4a4c50).multiplyScalar(1 - k * 0.13).getHex();
+      b.box(0, 0.045, -2.1 + k * 0.5, 2.9, 0.01, 0.22, shade);
+    }
+    // railings on three sides (the open end, +z, is the way in... the stairs lead down toward -z)
+    const rail = 0x2f5a3c;
+    for (const x of [-1.7, 1.7]) {
+      b.box(x, 0.55, 0, 0.12, 1.1, 5.2, 0x3a3c40, 0x44474c); // low wall
+      b.box(x, 1.25, 0, 0.07, 0.07, 5.2, rail);
+      for (const z of [-2.5, -0.8, 0.9, 2.5]) b.box(x, 1.0, z, 0.07, 0.5, 0.07, rail);
+    }
+    b.box(0, 0.55, -2.6, 3.5, 1.1, 0.12, 0x3a3c40, 0x44474c);
+    b.box(0, 1.25, -2.6, 3.5, 0.07, 0.07, rail);
+    // the sign post
+    b.box(2.3, 1.6, 2.3, 0.14, 3.2, 0.14, 0x2a2c30);
+    this.group.add(new Mesh(b.build(), weather(new MeshLambertMaterial({ vertexColors: true }))));
+    this.sign = new MeshBasicMaterial({ map: textTexture('SUBWAY', '#e8f6ea', 256, 96, 'bold 52px system-ui, sans-serif', false), color: 0xff6a5a });
+    const sign = new Mesh(new BoxGeometry(1.9, 0.6, 0.12), this.sign);
+    sign.position.set(2.3, 3.35, 2.3);
+    sign.rotation.y = Math.PI / 4; // faces the camera
+    // the shutter, rolled down across the top of the stairs
+    const sh = new MeshBuilder();
+    for (let k = 0; k < 6; k++) sh.box(0, 0.12 + k * 0.17, 0, 3.2, 0.15, 0.06, k % 2 ? 0x6a6c70 : 0x5a5c60);
+    this.shutter = new Mesh(sh.build(), weather(new MeshLambertMaterial({ vertexColors: true })));
+    this.shutter.position.set(0, 0, 2.45);
+    // light coming up out of the stairwell once it is open
+    this.glow = new Mesh(
+      new PlaneGeometry(2.8, 4.4).rotateX(-Math.PI / 2),
+      new MeshBasicMaterial({ color: 0x7dffa8, transparent: true, opacity: 0, blending: AdditiveBlending, depthWrite: false }),
+    );
+    this.glow.position.y = 0.06;
+    this.group.add(sign, this.shutter, this.glow);
+  }
+
+  update(time: number, open: boolean): void {
+    this.shutter.visible = !open;
+    this.sign.color.setHex(open ? 0x7dffa8 : 0xff6a5a);
+    (this.glow.material as MeshBasicMaterial).opacity = open ? 0.16 + Math.sin(time * 3) * 0.05 : 0;
+  }
+}
+
 export class Evac {
   readonly group = new Group();
   private heli = new Group();

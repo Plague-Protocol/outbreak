@@ -1,6 +1,6 @@
-import { currentTask, interactionFor, isGun, playerVehicle, requiredDone, type GameState } from '../core/state';
-import { ending, objectiveFor, SAFEHOUSE_LABEL, shortName } from '../core/story';
-import { PLAYER_HEALTH, VEHICLES, WEAPON_NAMES } from '../core/config';
+import { currentTask, finalChapter, interactionFor, isGun, playerVehicle, requiredDone, type GameState } from '../core/state';
+import { ending, exitLabel, objectiveFor, shortName } from '../core/story';
+import { CHAPTERS, GEAR, PLAYER_HEALTH, VEHICLES, WEAPON_NAMES } from '../core/config';
 import type { Interaction, TaskId } from '../core/types';
 import type { GameView } from '../render/view';
 
@@ -53,6 +53,9 @@ export class Hud {
   private throwBtn = $('btn-throw');
   private bottles = $('bottles');
   private reloadBtn = $('btn-reload');
+  private clockLabel = document.querySelector('#clock small') as HTMLElement;
+  private gear = $('gear');
+  private lastClock = '';
   private toastTimer = 0;
   private hurtTimer = 0;
   private lastTimer = '';
@@ -106,9 +109,12 @@ export class Hud {
       this.timer.classList.toggle('low', s.remaining <= 20);
     }
 
+    const final = finalChapter(s);
+    const clock = `CHAPTER ${s.chapter + 1}/${CHAPTERS} · ${final ? 'LAST EVAC IN' : 'TIME LEFT'}`;
+    if (clock !== this.lastClock) { this.lastClock = clock; this.clockLabel.textContent = clock; }
     const cur = currentTask(s);
     const ready = requiredDone(s);
-    const label = ready ? SAFEHOUSE_LABEL : cur ? objectiveFor(cur.id) : 'Find another way through';
+    const label = ready ? exitLabel(final) : cur ? objectiveFor(cur.id, final) : 'Find another way through';
     const optional = s.tasks.filter((x) => !x.required && !x.done);
     const html = `${label}${!ready && optional.length ? `<small>Optional, costs time: ${optional.map((o) => shortName(o.id)).join(', ')}</small>` : ''}`;
     if (html !== this.lastTask) {
@@ -119,6 +125,10 @@ export class Hud {
     // vitals
     this.healthBar.style.width = `${(s.player.health / PLAYER_HEALTH) * 100}%`;
     this.funds.textContent = `$${s.funds}${s.arsenal.cans ? `  ·  Fuel can x${s.arsenal.cans}` : ''}`;
+    // protective gear, as what is left of each piece
+    const worn = (['vest', 'helmet'] as const).filter((g) => s.arsenal.gear[g] > 0);
+    this.gear.style.display = worn.length ? 'block' : 'none';
+    if (worn.length) this.gear.textContent = worn.map((g) => `${g === 'vest' ? 'Vest' : 'Helmet'} ${Math.ceil((s.arsenal.gear[g] / GEAR[g].durability) * 100)}%`).join('  ·  ');
     const car = playerVehicle(s);
     this.carHealth.style.display = car ? 'block' : 'none';
     if (car) {
@@ -166,8 +176,11 @@ export class Hud {
     const title = $('end-title');
     title.textContent = e.title;
     title.className = s.phase === 'won' ? 'won' : 'lost';
-    $('end-text').textContent = s.phase === 'won' ? `${e.text} (${fmt(s.remaining)} to spare, ${s.kills} infected down.)` : e.text;
-    $('end-seed').textContent = `Night ${s.seed}`;
+    $('end-text').textContent = s.phase === 'won'
+      ? `${e.text} (${fmt(s.remaining)} to spare, ${s.kills} infected down.)`
+      : `${e.text} (Chapter ${s.chapter + 1} of ${CHAPTERS}.)`;
+    $('retry').textContent = s.chapter > 0 && s.phase !== 'won' ? 'Retry chapter' : 'Try again';
+    $('end-seed').textContent = `Night ${s.night}${s.chapter > 0 ? ` · chapter ${s.chapter + 1}` : ''}`;
     this.arrow.style.display = 'none';
     this.hold.style.display = 'none';
     this.endScreen.style.display = 'flex';

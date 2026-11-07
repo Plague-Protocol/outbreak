@@ -130,3 +130,21 @@ export const REFUEL_SECONDS = 1.5;
 export const PUMP_RATE = 0.3; // tank per second, stopped at a pump
 export const BOTTLES_PRICE = 10; // three bottles
 export const JERRYCAN_PRICE = 20;
+
+// ---- chapters: a night crosses several districts. Each ends at a door into the next (its map shows
+// where); the last ends at the helicopter. Every district has its own clock.
+export const CHAPTERS = 3;
+export const CHAPTER_BONUS = 0.5; // $ per second left on the clock when you leave a district
+export const CHAPTER_HEAL = 25; // you catch your breath on the way through
+/** Deeper in, it gets worse (the city is already at its population cap): a share of the resting
+ * crowd are runners, and the waves are bigger. By chapter. */
+export const CHAPTER_RUNNERS = [0, 0.08, 0.15] as const;
+export const CHAPTER_WAVES = [1, 1.25, 1.5] as const;
+
+// ---- protective gear: takes a share of every hit and wears down doing it (from zombies now, and
+// from anything else that hurts the player later)
+export const GEAR = {
+  vest: { name: 'Kevlar vest', absorb: 0.5, durability: 60, price: 70 },
+  helmet: { name: 'Riot helmet', absorb: 0.25, durability: 40, price: 40 },
+} as const;
+export const GEAR_PICKUPS = 1; // lying somewhere in each district

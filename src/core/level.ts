@@ -2,7 +2,7 @@ import { chance, fork, next, pick, range, shuffle } from './rng';
 import { cellOf, distanceField, generateMap, PITCH, STREET, UNREACHABLE } from './map';
 import { generateChain } from './tasks';
 import {
-  AMBUSH_CHANCE, AMMO_PICKUPS, BOTTLE_PICKUPS, CRATE_COUNT, HOUSE_COUNT, JERRYCAN_PICKUPS, PLAYER_SPEED, STORE_NAMES,
+  AMBUSH_CHANCE, AMMO_PICKUPS, BOTTLE_PICKUPS, CRATE_COUNT, GEAR_PICKUPS, HOUSE_COUNT, JERRYCAN_PICKUPS, PLAYER_SPEED, STORE_NAMES,
   SURVIVOR_COUNT, SURVIVOR_NAMES, TASK_HOLD_SECONDS, TIME_PAD, TIME_SLACK, VEHICLE_COUNT, VEHICLES,
 } from './config';
 import type {
@@ -101,11 +101,12 @@ export function generateLevel(seed: number): Level {
   const kinds: PickupKind[] = [
     'bat', 'bat', 'machete', 'shotgun', 'shotgun', 'rifle', ...Array<PickupKind>(AMMO_PICKUPS).fill('ammo'),
     ...Array<PickupKind>(BOTTLE_PICKUPS).fill('bottles'), ...Array<PickupKind>(JERRYCAN_PICKUPS).fill('jerrycan'),
+    ...Array.from({ length: GEAR_PICKUPS }, (): PickupKind => (chance(rng, 0.5) ? 'vest' : 'helmet')),
   ];
   const taken = [...busy, ...crates.map((c) => c.pos)];
   const pickups: Pickup[] = [];
   for (const kind of kinds) {
-    const minFromStart = kind === 'rifle' ? 70 : kind === 'shotgun' || kind === 'machete' ? 30 : 12;
+    const minFromStart = kind === 'rifle' ? 70 : kind === 'shotgun' || kind === 'machete' || kind === 'vest' || kind === 'helmet' ? 30 : 12;
     const p = shuffle(rng, map.points).find((q) => dist(q, spawn) > minFromStart && taken.every((t) => dist(q, t) > 14));
     if (!p) continue;
     const pos = pavement(map, p, chance(rng, 0.5) ? 1 : -1) ?? { ...p };
@@ -127,7 +128,8 @@ export function generateLevel(seed: number): Level {
   }
   const houses: House[] = doors.slice(0, HOUSE_COUNT).map((pos, i) => {
     const r = next(hrng);
-    const loot: Loot = r < 0.25 ? 'medkit' : r < 0.5 ? 'supplies' : r < 0.75 ? 'ammo' : r < 0.9 ? 'bottles' : 'empty';
+    // now and then someone left their protective gear behind
+    const loot: Loot = r < 0.23 ? 'medkit' : r < 0.46 ? 'supplies' : r < 0.69 ? 'ammo' : r < 0.84 ? 'bottles' : r < 0.9 ? (r < 0.87 ? 'helmet' : 'vest') : 'empty';
     return { id: i + 1, pos, loot, ambush: chance(hrng, AMBUSH_CHANCE), searched: false };
   });
 

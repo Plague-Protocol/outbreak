@@ -26,9 +26,9 @@ export const INTRO: { card: string; sub: string; lines: Line[] } = {
   lines: [
     'Narrator|Port Halden. Three days ago a virus came in on a cargo ship. Nobody gave it a name. The news just called it the fever.',
     'Narrator|Then the fevered stopped being sick. They got up off the hospital floors and walked out into the city, hungry.',
-    `${RADIO}|This is the emergency broadcast. The army is running one last evacuation tonight. Survivors, make your way to the evac point.`,
+    `${RADIO}|This is the emergency broadcast. The army is running one last evacuation tonight, from the far side of the city. Survivors, make your way there district by district. The subway tunnels between them are still open.`,
     `${RADIO}|The last helicopter leaves on schedule and it will not wait. If you need to defend yourself, the weapon stores have left their doors open. Halden Arms is one.`,
-    `${HERO}|Get what I need, find a ride, and get on that helicopter. Don't stop moving.`,
+    `${HERO}|One district at a time. Find the way through, get across, and get on that helicopter. Don't stop moving.`,
   ].map(L),
 };
 
@@ -53,8 +53,8 @@ const BEATS: Record<TaskId, Beat> = {
   key: {
     objective: 'Take the gate key from the fallen medic',
     short: 'the gate key',
-    brief: [`${RADIO}|The evac zone is fenced. A medic went out for supplies with the gate key and never came back.`],
-    done: [`${HERO}|Keys on a lanyard: "EVAC ZONE, SOUTH GATE". I'm sorry. Thank you.`],
+    brief: [`${RADIO}|The way out is fenced. A medic went out for supplies with the gate key and never came back.`],
+    done: [`${HERO}|Keys on a lanyard: "SOUTH GATE". I'm sorry. Thank you.`],
   },
   power: {
     objective: 'Restart the street generator',
@@ -100,20 +100,61 @@ const BEATS: Record<TaskId, Beat> = {
   },
 };
 
-export function objectiveFor(id: TaskId): string {
-  return BEATS[id].objective;
+/** Before the last chapter the map shows the way into the next district, not the landing zone. */
+const DISTRICT_MAP: Beat = {
+  objective: 'Find the district map in the abandoned police car',
+  short: 'the map',
+  brief: [`${RADIO}|Police cruisers carried district maps with the open tunnels marked. Find one and you'll know the way out of here.`],
+  done: [`${HERO}|The map. One subway entrance is marked "OPEN". That's my way into the next district.`],
+};
+const beat = (id: TaskId, final: boolean): Beat => (id === 'map' && !final ? DISTRICT_MAP : BEATS[id]);
+
+export function objectiveFor(id: TaskId, final = true): string {
+  return beat(id, final).objective;
 }
 
 export function shortName(id: TaskId): string {
   return BEATS[id].short;
 }
 
-export function briefFor(id: TaskId): Line[] {
-  return BEATS[id].brief.map(L);
+export function briefFor(id: TaskId, final = true): Line[] {
+  return beat(id, final).brief.map(L);
 }
 
-export function doneFor(id: TaskId): Line[] {
-  return BEATS[id].done.map(L);
+export function doneFor(id: TaskId, final = true): Line[] {
+  return beat(id, final).done.map(L);
+}
+
+/** The card shown as each chapter begins. */
+export const CHAPTER_CARDS: ReadonlyArray<{ card: string; sub: string }> = [
+  { card: 'CHAPTER ONE', sub: 'Where it started' },
+  { card: 'CHAPTER TWO', sub: 'Across the tracks' },
+  { card: 'CHAPTER THREE', sub: 'The last helicopter' },
+];
+export function chapterCard(chapter: number): { card: string; sub: string } {
+  return CHAPTER_CARDS[chapter] ?? { card: `CHAPTER ${chapter + 1}`, sub: 'Keep moving' };
+}
+
+/** Spoken as you come up out of the tunnel into a new district. */
+export function chapterLines(final: boolean): Line[] {
+  return (final
+    ? [`${HERO}|Last stretch. I can hear rotors somewhere over the rooftops.`, `${RADIO}|...final evacuation loading on schedule. Anyone still out there, this is your last chance...`]
+    : [`${HERO}|Out of the tunnel. New streets, same nightmare. Find the way through.`]
+  ).map(L);
+}
+
+/** The HUD objective once every step is done. */
+export function exitLabel(final: boolean): string {
+  return final ? 'Get to the evac point' : 'Get to the subway entrance (the next district)';
+}
+
+export function exitOpen(final: boolean): Line[] {
+  return [L(final ? `${HERO}|That's everything. The evac point. Go!` : `${HERO}|That's everything. The subway entrance. Go!`)];
+}
+
+export function exitLocked(missing: string[], final: boolean): Line[] {
+  if (final) return safehouseLocked(missing);
+  return [L(`${HERO}|The shutter's chained. ${missing.length > 0 ? `I still need ${missing.join(', ')}.` : ''}`)];
 }
 
 export function tierLines(tier: number): Line[] {

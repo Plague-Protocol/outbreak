@@ -1,5 +1,9 @@
-import { createGame, currentTask, requiredDone, step, type GameState } from './core/state';
-import { briefFor, doneFor, INTRO, lockedTask, SAFEHOUSE_OPEN, safehouseLocked, shortName, survivorLines, tierLines } from './core/story';
+import {
+  chapterBonus, createGame, currentTask, finalChapter, nextChapter, requiredDone, restartChapter, step, type GameState,
+} from './core/state';
+import {
+  briefFor, chapterCard, chapterLines, doneFor, exitLocked, exitOpen, INTRO, lockedTask, shortName, survivorLines, tierLines,
+} from './core/story';
 import type { GameEvent, TaskId } from './core/types';
 import { GameView } from './render/view';
 import { loadCharacterAssets } from './render/characters';
@@ -8,7 +12,7 @@ import { Hud } from './ui/hud';
 import { Dialogue } from './ui/dialogue';
 import { Sound } from './audio/sound';
 import { CityMap } from './ui/map';
-import { WEAPON_NAMES } from './core/config';
+import { GEAR, WEAPON_NAMES } from './core/config';
 import { StorePage } from './ui/store';
 import { anonymousSession } from './seams/session';
 import { noopProgress, type RunResult } from './seams/progress';
@@ -36,8 +40,8 @@ const controls = new Controls($('game'), $('stick'), $('knob'));
 const dialogue = new Dialogue();
 const sound = new Sound();
 const hud = new Hud({
-  retry: () => begin(state.seed, false),
-  newNight: () => begin(newSeed(), false),
+  retry: () => begin(restartChapter(state), false),
+  newNight: () => begin(createGame(newSeed()), false),
 });
 view.cinematic = 0;
 let paused = false; // store or full map open
@@ -74,13 +78,14 @@ startBtn.addEventListener('click', () => {
   void goLandscape();
   sound.start();
   $('title').style.display = 'none';
-  begin(state.seed, !params.has('skipintro'));
+  begin(state, !params.has('skipintro'));
 });
 if (debug) Object.defineProperty(window, '__outbreak', { get: () => ({ state, mode, view }) }); // test hook
 
-/** Start a night. The full intro plays once; retries go straight to the street. */
-function begin(seed: number, withIntro: boolean): void {
-  if (seed !== state.seed || state.phase !== 'playing' || state.elapsed > 0) state = createGame(seed);
+/** Start a chapter (or a night). The full intro plays once; retries and new chapters go straight
+ * to the street. */
+function begin(fresh: GameState, withIntro: boolean): void {
+  state = fresh;
   hud.reset();
   storePage.hide();
   paused = false;
@@ -97,9 +102,18 @@ function begin(seed: number, withIntro: boolean): void {
     hud.showCard(INTRO.card, INTRO.sub, 3.2);
     window.setTimeout(() => dialogue.playCutscene(INTRO.lines, startPlay), 3400);
   } else {
-    hud.showCard(INTRO.card, INTRO.sub, 1.6);
+    const c = chapterCard(state.chapter);
+    hud.showCard(c.card, c.sub, 2.2);
     startPlay();
+    if (state.chapter > 0) dialogue.say(chapterLines(finalChapter(state)));
   }
+}
+
+/** Down the subway stairs and up into the next district. */
+function advance(): void {
+  const bonus = chapterBonus(state);
+  begin(nextChapter(state), false);
+  if (bonus > 0) hud.toast(`+$${bonus} for time to spare`);
 }
 
 function startPlay(): void {
@@ -112,7 +126,8 @@ function finish(): void {
   hud.cinema(true);
   dialogue.clear();
   const result: RunResult = {
-    seed: state.seed,
+    seed: state.night,
+    chapter: state.chapter,
     outcome: state.phase === 'won' ? 'won' : 'lost',
     lossReason: state.lossReason,
     secondsLeft: state.remaining,
@@ -127,10 +142,10 @@ function finish(): void {
 function narrate(events: readonly GameEvent[]): void {
   for (const e of events) {
     switch (e.type) {
-      case 'task-done': dialogue.say(doneFor(e.id)); break;
+      case 'task-done': dialogue.say(doneFor(e.id, finalChapter(state))); break;
       case 'tier-up': dialogue.say(tierLines(e.tier)); view.shake(0.5); break;
       case 'safehouse-locked':
-        dialogue.say(safehouseLocked(state.tasks.filter((t) => t.required && !t.done).map((t) => shortName(t.id))));
+        dialogue.say(exitLocked(state.tasks.filter((t) => t.required && !t.done).map((t) => shortName(t.id)), finalChapter(state)));
         break;
       case 'task-locked':
         dialogue.say(lockedTask(e.needs.map((id) => shortName(id))));
@@ -148,7 +163,8 @@ function narrate(events: readonly GameEvent[]): void {
         hud.toast(e.kind === 'ammo' ? `+${e.amount} ammo`
           : e.kind === 'bottles' ? `+${e.amount} bottles: throw one (G) to draw them away`
             : e.kind === 'jerrycan' ? 'Jerrycan: fill up a car (stand by it, REFUEL)'
-              : `Picked up: ${WEAPON_NAMES[e.kind]}`);
+              : e.kind === 'vest' || e.kind === 'helmet' ? `${GEAR[e.kind].name}: takes part of every hit`
+                : `Picked up: ${WEAPON_NAMES[e.kind]}`);
         break;
       case 'crate-opened':
         hud.toast(e.loot === 'medkit' ? 'Medkit: +health' : e.loot === 'supplies' ? 'Supplies: +$25' : e.loot === 'ammo' ? 'Ammo' : 'Empty');
@@ -161,7 +177,7 @@ function narrate(events: readonly GameEvent[]): void {
       case 'out-of-fuel': hud.toast('Out of fuel. It rolls to a stop.'); break;
       case 'refueled': hud.toast(e.from === 'pump' ? 'Filling up at the pump...' : 'Refuelled.'); break;
       case 'house-searched':
-        hud.toast(`${e.loot === 'medkit' ? 'First aid: +health' : e.loot === 'supplies' ? 'Cash in a drawer: +$25' : e.loot === 'ammo' ? 'A box of rounds' : e.loot === 'bottles' ? 'Empty bottles' : 'Nothing worth taking'}${e.ambush ? '. Something moves inside!' : ''}`);
+        hud.toast(`${e.loot === 'medkit' ? 'First aid: +health' : e.loot === 'supplies' ? 'Cash in a drawer: +$25' : e.loot === 'ammo' ? 'A box of rounds' : e.loot === 'bottles' ? 'Empty bottles' : e.loot === 'vest' || e.loot === 'helmet' ? `A ${GEAR[e.loot].name.toLowerCase()}, still good` : 'Nothing worth taking'}${e.ambush ? '. Something moves inside!' : ''}`);
         if (e.ambush) view.shake(0.4);
         break;
       case 'alarm-start': hud.toast('Car alarm! Everything nearby is heading for it.'); break;
@@ -173,6 +189,8 @@ function narrate(events: readonly GameEvent[]): void {
       case 'survivor-ready': { const v = state.survivors.find((x) => x.id === e.id); if (v) dialogue.say(survivorLines(v, 'ready')); break; }
       case 'fetched': { const v = state.survivors.find((x) => x.id === e.id); if (v) dialogue.say(survivorLines(v, 'fetched')); break; }
       case 'survivor-done': { const v = state.survivors.find((x) => x.id === e.id); if (v) dialogue.say(survivorLines(v, 'done', e.reward)); break; }
+      case 'gear-broken': hud.toast(`Your ${e.gear} is torn apart. Buy another at a weapon store.`); break;
+      case 'chapter-cleared': hud.toast('Down the stairs, into the dark...'); break;
       case 'vehicle-wrecked': hud.toast('The engine dies. Get out!'); view.shake(0.8); break;
       case 'empty': hud.toast('Out of ammo. Swap to your baton (Q), or buy rounds at a weapon store.'); break;
       case 'store-open': {
@@ -189,10 +207,10 @@ function narrate(events: readonly GameEvent[]): void {
   const cur = currentTask(state)?.id ?? null;
   if (cur !== lastTaskId) {
     lastTaskId = cur;
-    if (cur) dialogue.say(briefFor(cur));
+    if (cur) dialogue.say(briefFor(cur, finalChapter(state)));
   }
   const ready = requiredDone(state);
-  if (ready && !wasReady) dialogue.say(SAFEHOUSE_OPEN);
+  if (ready && !wasReady) dialogue.say(exitOpen(finalChapter(state)));
   wasReady = ready;
 }
 
@@ -220,14 +238,15 @@ function frame(now: number): void {
     narrate(pending);
     if (state.phase !== 'playing' && endTimer < 0) {
       // let the moment play out before the ending card
-      endTimer = state.phase === 'won' ? 1.4 : state.lossReason === 'caught' ? 2.6 : 1.2;
+      endTimer = state.phase === 'won' ? 1.4 : state.phase === 'cleared' ? 1.3 : state.lossReason === 'caught' ? 2.6 : 1.2;
+      if (state.phase === 'cleared') hud.cinema(true); // the bars close in as you go down the stairs
     }
   } else {
     acc = 0;
   }
   if (endTimer >= 0 && mode === 'play') {
     endTimer -= dt;
-    if (endTimer < 0) finish();
+    if (endTimer < 0) { if (state.phase === 'cleared') advance(); else finish(); }
   }
   stepMs = stepMs * 0.9 + (performance.now() - t0) * 0.1;
 

@@ -21,6 +21,13 @@ pixel ratio, `?lights=0..6` number of real point lights, `?zoom=N` camera span.
 
 ## Playing
 
+- **Chapters:** a night crosses three districts, each a freshly generated part of the city with
+  its own clock. Steps come up one at a time (only the current one is on the street and the map);
+  the district map is always the last, and it shows the way out: a subway entrance into the next
+  district. Weapons, ammo, gear, cash and kills carry over; seconds left on the clock pay $0.50
+  each, and you catch your breath (+25 health). Later districts have runners in the crowd and
+  bigger waves. The third chapter ends at the helicopter. A retry restarts the chapter with what
+  you came into it with.
 - **Move:** drag anywhere (floating stick) or WASD. A light push walks, a full push runs.
 - **Fire / swing:** hold FIRE (or Space). Aim assist picks the zombie in front of you. Gunfire
   is loud: everything within earshot comes looking. With a melee weapon the button reads SWING.
@@ -54,13 +61,18 @@ pixel ratio, `?lights=0..6` number of real point lights, `?zoom=N` camera span.
   at the gas station's pumps fills it.
 - **Health:** a lunge hurts and knocks you back; the third kills. Shoot a zombie during its
   wind-up to spoil the lunge. Medkits heal.
+- **Protective gear:** a Kevlar vest takes half of every hit, a riot helmet a quarter; each wears
+  down by what it takes and shows on the character while it lasts. One lies somewhere in each
+  district, houses sometimes have one, and the store's Gear tab sells them (a worn piece is swapped
+  for new at the price of the wear). Damage goes through one function, so it will protect against
+  other players too when there are any.
 
 ## The story
 
 Told the way Eko Lockdown tells its story: a title card, a letterboxed intro, "Speaker|line"
 dialogue, radio briefs as each step comes up, radio calls as the night gets worse, and endings
-(EVACUATED, TAKEN, LEFT BEHIND). Each night picks its steps from a seeded pool (evac map, gate key,
-generator and gate, keycard, radio frequency) with optional detours that cost time. Text lives in
+(EVACUATED, TAKEN, LEFT BEHIND). Each chapter picks its steps from a seeded pool (gate key, generator
+and gate, keycard, radio frequency), always ending with the map, with optional detours that cost time. Text lives in
 `src/core/story.ts`. Setting and names are invented so the game reads anywhere.
 
 ## The city

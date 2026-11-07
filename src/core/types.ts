@@ -132,7 +132,9 @@ export interface Vehicle {
   fuel: number; // 0..1; an empty tank coasts to a stop
 }
 
-export type Loot = 'medkit' | 'supplies' | 'ammo' | 'bottles' | 'empty';
+export type GearKind = 'vest' | 'helmet';
+
+export type Loot = 'medkit' | 'supplies' | 'ammo' | 'bottles' | GearKind | 'empty';
 
 /** A house you can search: loot inside, and sometimes one of them. */
 export interface House {
@@ -180,7 +182,7 @@ export type MeleeKind = 'baton' | 'bat' | 'machete';
 export type WeaponKind = GunKind | MeleeKind;
 export type UpgradeKind = 'damage' | 'mag' | 'reload';
 
-export type PickupKind = WeaponKind | 'ammo' | 'bottles' | 'jerrycan';
+export type PickupKind = WeaponKind | GearKind | 'ammo' | 'bottles' | 'jerrycan';
 
 /** Lying in the street: walk over it to take it. */
 export interface Pickup {
@@ -195,6 +197,7 @@ export type StoreItem =
   | { kind: 'weapon'; weapon: WeaponKind }
   | { kind: 'ammo'; weapon: GunKind }
   | { kind: 'upgrade'; weapon: WeaponKind; upgrade: UpgradeKind }
+  | { kind: 'gear'; gear: GearKind }
   | { kind: 'medkit' }
   | { kind: 'bottles' }
   | { kind: 'jerrycan' };
@@ -225,7 +228,8 @@ export type Interaction =
   | { kind: 'refuel'; vehicleId: number }
   | { kind: 'alarm'; car: number };
 
-export type Phase = 'playing' | 'won' | 'lost';
+/** `cleared`: through the door at the end of a chapter; the next district is loading. */
+export type Phase = 'playing' | 'cleared' | 'won' | 'lost';
 export type LossReason = 'time' | 'caught';
 
 export type GameEvent =
@@ -266,6 +270,9 @@ export type GameEvent =
   | { type: 'alarm-start'; car: number; pos: Vec2 }
   | { type: 'alarm-stop'; car: number }
   | { type: 'work-started'; kind: 'search' | 'talk' | 'refuel' }
+  | { type: 'gear-hit'; gear: GearKind; absorbed: number }
+  | { type: 'gear-broken'; gear: GearKind }
+  | { type: 'chapter-cleared'; chapter: number }
   | { type: 'won' }
   | { type: 'lost'; reason: LossReason };
 

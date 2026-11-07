@@ -1,5 +1,5 @@
 import {
-  AnimationAction, AnimationClip, Matrix4, Vector3, AnimationMixer, EqualStencilFunc, GreaterDepth, KeepStencilOp, LoopOnce, LoopRepeat,
+  AnimationAction, AnimationClip, Matrix4, Quaternion, Vector3, AnimationMixer, EqualStencilFunc, GreaterDepth, KeepStencilOp, LoopOnce, LoopRepeat,
   MeshBasicMaterial, MeshLambertMaterial, NearestFilter, Object3D, SkinnedMesh, SRGBColorSpace, TextureLoader, type Material,
 } from 'three';
 import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
@@ -83,6 +83,8 @@ export class Actor {
   private upper: UpperClip | null = null;
   private hand: Object3D | null = null;
   private held: Object3D | null = null;
+  /** Where worn gear hangs: a frame on the bone, lined up with the body at rest, in world units. */
+  private mounts = new Map<'chest' | 'head', Object3D>();
 
   constructor(private assets: CharacterAssets, skin: SkinName, withXray = false) {
     this.root = clone(assets.template);
@@ -101,6 +103,32 @@ export class Actor {
     });
     this.mixer = new AnimationMixer(this.root);
     this.hand = this.root.getObjectByName('RightHand') ?? null;
+    // mounts for worn gear, measured in the rest pose (before any animation): a child of the bone
+    // whose axes are the character's own (+z forward, +y up), unscaled, at the bone's position
+    this.root.updateMatrixWorld(true);
+    for (const [slot, names] of [['chest', ['UpperChest', 'Chest', 'Spine']], ['head', ['Head']]] as const) {
+      const bone = names.map((n) => this.root.getObjectByName(n)).find((b) => b);
+      if (!bone) continue;
+      const at = new Vector3().setFromMatrixPosition(bone.matrixWorld);
+      const rootQ = this.root.getWorldQuaternion(new Quaternion());
+      const want = new Matrix4().compose(at, rootQ, new Vector3(1, 1, 1));
+      const mount = new Object3D();
+      mount.matrixAutoUpdate = false;
+      mount.matrix.copy(bone.matrixWorld).invert().multiply(want);
+      bone.add(mount);
+      this.mounts.set(slot, mount);
+    }
+  }
+
+  /** Wear something on the chest or head (null takes it off). Built in world units around the
+   * middle of the chest or head, +z forward. */
+  wear(slot: 'chest' | 'head', obj: Object3D | null, offset = new Vector3()): void {
+    const mount = this.mounts.get(slot);
+    if (!mount) return;
+    mount.clear();
+    if (!obj) return;
+    obj.position.add(offset);
+    mount.add(obj);
   }
 
   /**

@@ -1,4 +1,4 @@
-import { currentTask, requiredDone, type GameState } from '../core/state';
+import { currentTask, finalChapter, isRevealed, requiredDone, type GameState } from '../core/state';
 import { CITY_NAME } from '../core/map';
 import { shortName } from '../core/story';
 import type { MapData, Vec2 } from '../core/types';
@@ -54,10 +54,10 @@ function markers(s: GameState): Marker[] {
   const out: Marker[] = [];
   const cur = currentTask(s);
   for (const t of s.tasks) {
-    if (t.done) continue;
+    if (t.done || !isRevealed(s, t)) continue; // later steps stay hidden until they come up
     out.push({ pos: t.pos, color: t.required ? '#f2b630' : '#3f9be6', size: t === cur ? 7 : 5, shape: 'ring', label: t === cur ? shortName(t.id) : undefined });
   }
-  if (s.safehouseKnown) out.push({ pos: s.safehouse, color: requiredDone(s) ? '#3ddc84' : '#d9534f', size: 8, shape: 'ring', label: 'Evac' });
+  if (s.safehouseKnown) out.push({ pos: s.safehouse, color: requiredDone(s) ? '#3ddc84' : '#d9534f', size: 8, shape: 'ring', label: finalChapter(s) ? 'Evac' : 'Subway' });
   for (const st of s.stores) out.push({ pos: st.pos, color: '#ff4b4b', size: 6, shape: 'cash', label: 'Weapons' });
   for (const v of s.survivors) {
     if (v.status === 'done') continue;
@@ -66,7 +66,7 @@ function markers(s: GameState): Marker[] {
   }
   for (const h of s.houses) if (!h.searched) out.push({ pos: h.pos, color: '#c8d4ee', size: 2.2, shape: 'dot' });
   for (const p of s.pickups) if (!p.taken && p.kind === 'jerrycan') out.push({ pos: p.pos, color: '#e05030', size: 3, shape: 'square' });
-  for (const p of s.pickups) if (!p.taken && p.kind !== 'ammo' && p.kind !== 'bottles' && p.kind !== 'jerrycan') out.push({ pos: p.pos, color: p.kind === 'bat' || p.kind === 'machete' ? '#d0a070' : '#f2d060', size: 3.5, shape: 'dot' });
+  for (const p of s.pickups) if (!p.taken && p.kind !== 'ammo' && p.kind !== 'bottles' && p.kind !== 'jerrycan') out.push({ pos: p.pos, color: p.kind === 'bat' || p.kind === 'machete' ? '#d0a070' : p.kind === 'vest' || p.kind === 'helmet' ? '#8cc4ff' : '#f2d060', size: 3.5, shape: 'dot' });
   for (const v of s.vehicles) if (!v.wrecked && v.id !== s.player.vehicleId) out.push({ pos: v.pos, color: '#e8e8e8', size: 3, shape: 'square' });
   return out;
 }

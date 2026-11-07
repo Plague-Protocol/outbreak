@@ -1,11 +1,16 @@
 import { buy, equip, gunStats, isGun, meleeStats, priceOf, type GameState } from '../core/state';
-import { GUNS, JERRYCAN_FUEL, MEDKIT_HEAL, PLAYER_HEALTH, UPGRADE_EFFECT, UPGRADE_LEVELS, WEAPON_NAMES } from '../core/config';
-import type { GunKind, MeleeKind, Store, StoreItem, UpgradeKind, WeaponKind } from '../core/types';
+import { GEAR, GUNS, JERRYCAN_FUEL, MEDKIT_HEAL, PLAYER_HEALTH, UPGRADE_EFFECT, UPGRADE_LEVELS, WEAPON_NAMES } from '../core/config';
+import type { GearKind, GunKind, MeleeKind, Store, StoreItem, UpgradeKind, WeaponKind } from '../core/types';
 
 const $ = (id: string) => document.getElementById(id)!;
 
-type Tab = 'weapons' | 'upgrades' | 'ammo' | 'supplies';
-const TABS: Array<[Tab, string]> = [['weapons', 'Weapons'], ['upgrades', 'Upgrades'], ['ammo', 'Ammo'], ['supplies', 'Supplies']];
+type Tab = 'weapons' | 'gear' | 'upgrades' | 'ammo' | 'supplies';
+const TABS: Array<[Tab, string]> = [['weapons', 'Weapons'], ['gear', 'Gear'], ['upgrades', 'Upgrades'], ['ammo', 'Ammo'], ['supplies', 'Supplies']];
+const GEAR_ORDER: GearKind[] = ['vest', 'helmet'];
+const GEAR_BLURB: Record<GearKind, string> = {
+  vest: 'Plates front and back. Takes half of every hit until it is torn through.',
+  helmet: 'Hard shell and visor. Takes a quarter of every hit.',
+};
 
 const BLURB: Record<WeaponKind, string> = {
   pistol: 'Reliable sidearm. Loud enough to draw a crowd.',
@@ -23,8 +28,8 @@ const UPGRADE_NAMES: Record<UpgradeKind, [string, string]> = {
   reload: ['Fast reload', `-${UPGRADE_EFFECT.reload * 100}% reload time per level`],
 };
 
-/** Silhouette of each weapon for its card, drawn once into a small canvas. */
-function icon(w: WeaponKind): HTMLCanvasElement {
+/** Silhouette of each weapon (or piece of gear) for its card, drawn once into a small canvas. */
+function icon(w: WeaponKind | GearKind): HTMLCanvasElement {
   const c = document.createElement('canvas');
   c.width = 120;
   c.height = 48;
@@ -40,6 +45,10 @@ function icon(w: WeaponKind): HTMLCanvasElement {
     case 'baton': r(14, 22, 92, 6); r(30, 14, 6, 14); break;
     case 'bat': r(10, 22, 8, 6); r(16, 23, 44, 4); r(58, 21, 52, 9); break;
     case 'machete': r(10, 21, 30, 7); r(38, 18, 4, 13); g.fillStyle = '#eef1f4'; r(42, 19, 68, 9); break;
+    case 'vest': r(40, 6, 12, 8); r(68, 6, 12, 8); r(36, 12, 48, 32); g.fillStyle = '#9aa38c'; r(42, 30, 10, 10); r(55, 30, 10, 10); r(68, 30, 10, 10); break;
+    case 'helmet':
+      g.beginPath(); g.arc(60, 34, 24, Math.PI, 0); g.fill(); r(34, 33, 52, 5);
+      g.fillStyle = '#8fb0c8'; r(44, 24, 32, 7); break;
   }
   return c;
 }
@@ -54,7 +63,7 @@ export class StorePage {
   private tab: Tab = 'weapons';
   private s: GameState | null = null;
   private onClose: () => void = () => {};
-  private icons = new Map<WeaponKind, string>();
+  private icons = new Map<WeaponKind | GearKind, string>();
 
   constructor(private toast: (text: string) => void) {
     $('store-close').addEventListener('click', () => this.close());
@@ -95,12 +104,12 @@ export class StorePage {
   }
 
   /** Each weapon's silhouette, drawn once and reused as an image (a cloned canvas would be blank). */
-  private icon(w: WeaponKind): HTMLImageElement {
+  private icon(w: WeaponKind | GearKind): HTMLImageElement {
     let src = this.icons.get(w);
     if (!src) { src = icon(w).toDataURL(); this.icons.set(w, src); }
     const img = new Image();
     img.src = src;
-    img.alt = WEAPON_NAMES[w];
+    img.alt = w === 'vest' || w === 'helmet' ? GEAR[w].name : WEAPON_NAMES[w];
     return img;
   }
 
@@ -166,6 +175,24 @@ export class StorePage {
       GUN_ORDER.forEach(card);
       heading('Melee');
       MELEE_ORDER.forEach(card);
+    } else if (this.tab === 'gear') {
+      heading('Protective gear');
+      for (const g of GEAR_ORDER) {
+        const spec = GEAR[g];
+        const left = a.gear[g] / spec.durability;
+        const el = document.createElement('div');
+        el.className = `card${left > 0 ? ' held' : ''}`;
+        const state = left <= 0 ? 'Not wearing one.' : left >= 0.999 ? 'Wearing it: as new.' : `Wearing it: ${Math.ceil(left * 100)}% left. Swap it for new.`;
+        el.innerHTML = `<div class="art"></div><div class="info"><b>${spec.name}</b><small>${GEAR_BLURB[g]} ${state}</small>`
+          + `${bar('Protection', spec.absorb / 0.5)}${bar('Condition', left)}</div><div class="act"></div>`;
+        el.querySelector('.art')!.appendChild(this.icon(g));
+        el.querySelector('.act')!.appendChild(this.priceButton({ kind: 'gear', gear: g }, spec.name, 'As new'));
+        list.appendChild(el);
+      }
+      const p = document.createElement('p');
+      p.className = 'note';
+      p.textContent = 'Gear wears down as it takes hits. A worn piece is swapped for new at the price of the wear.';
+      list.appendChild(p);
     } else if (this.tab === 'upgrades') {
       const owned = [...GUN_ORDER, ...MELEE_ORDER].filter((w) => a.owned.includes(w));
       for (const w of owned) {

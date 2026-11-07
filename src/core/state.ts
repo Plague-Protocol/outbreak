@@ -11,6 +11,7 @@ import {
   ALARM_RADIUS, ALARM_SECONDS, ALARM_SHOT_RADIUS, BOTTLE_FLIGHT, BOTTLE_RANGE, BOTTLES_PRICE, CLEAR_COUNT, FUEL_SECONDS,
   JERRYCAN_FUEL, JERRYCAN_PRICE, LURE_RADIUS, LURE_SECONDS, PUMP_RATE, REFUEL_SECONDS, SEARCH_SECONDS, START_BOTTLES,
   SURVIVOR_FUNDS, TALK_SECONDS,
+  CHAPTER_BONUS, CHAPTER_HEAL, CHAPTER_RUNNERS, CHAPTER_WAVES, CHAPTERS, GEAR,
 } from './config';
 import { nearbyObstacles } from './collision';
 import { lineClear, resolve } from './collision';
@@ -19,7 +20,7 @@ import { cellOf, distanceField, UNREACHABLE } from './map';
 import { createRng, next, pick, range, type Rng } from './rng';
 import type {
   Alarm, House, Loot, Survivor, Thrown,
-  Crate, GameEvent, GunKind, Input, Interaction, LossReason, MapData, MeleeKind, Phase, Pickup, Store, StoreItem, Task,
+  Crate, GameEvent, GearKind, GunKind, Input, Interaction, LossReason, MapData, MeleeKind, Phase, Pickup, Store, StoreItem, Task,
   TaskId, UpgradeKind, Vec2, Vehicle, WeaponKind, Zombie, ZombieKind,
 } from './types';
 
@@ -35,6 +36,36 @@ export interface Arsenal {
   swing: number; // counts swings, so the renderer can alternate them
   bottles: number; // to throw as a distraction
   cans: number; // jerrycans of fuel
+  /** Protective gear worn, as durability left (0 = not wearing it). */
+  gear: Record<GearKind, number>;
+}
+
+/** What you bring into a chapter (and start it again with, if you retry it). */
+export interface Carry {
+  arsenal: Arsenal;
+  health: number;
+  funds: number;
+  kills: number;
+}
+
+const cloneArsenal = (a: Arsenal): Arsenal => ({
+  ...a,
+  owned: a.owned.slice(),
+  mag: { ...a.mag },
+  ammo: { ...a.ammo },
+  upgrades: Object.fromEntries(Object.entries(a.upgrades).map(([k, v]) => [k, { ...v }])) as Arsenal['upgrades'],
+  gear: { ...a.gear },
+  fireCd: 0,
+  reloadT: 0,
+});
+
+/** The level seed for a chapter of a night (chapter 0 is the night's own seed). */
+export function chapterSeed(night: number, chapter: number): number {
+  if (chapter === 0) return night >>> 0;
+  let h = (night ^ Math.imul(chapter, 0x9e3779b1)) >>> 0;
+  h = Math.imul(h ^ (h >>> 16), 0x85ebca6b) >>> 0;
+  h = Math.imul(h ^ (h >>> 13), 0xc2b2ae35) >>> 0;
+  return (h ^ (h >>> 16)) >>> 0;
 }
 
 /** A short job you stand still for: searching a house, talking to a survivor, refuelling a car. */
@@ -68,7 +99,10 @@ export function meleeStats(a: Arsenal, w: MeleeKind) {
 }
 
 export interface GameState {
-  seed: number;
+  seed: number; // this chapter's level
+  night: number; // the night's seed: every chapter's level comes from it
+  chapter: number; // 0-based; the last one ends at the helicopter
+  carry: Carry; // what you came into this chapter with
   phase: Phase;
   lossReason: LossReason | null;
   map: MapData;
@@ -117,9 +151,28 @@ const dist = (a: Vec2, b: Vec2) => Math.hypot(a.x - b.x, a.y - b.y);
 const wrap = (a: number) => Math.atan2(Math.sin(a), Math.cos(a));
 const approach = (v: number, target: number, step: number) => (v < target ? Math.min(target, v + step) : Math.max(target, v - step));
 
-export function createGame(seed: number, level: Level = generateLevel(seed)): GameState {
+export function createGame(
+  seed: number,
+  level: Level = generateLevel(seed),
+  opts: { night?: number; chapter?: number; carry?: Carry } = {},
+): GameState {
+  const carry: Carry = opts.carry ?? {
+    arsenal: {
+      weapon: 'pistol', owned: ['pistol', 'baton'],
+      mag: { pistol: GUNS.pistol.mag, shotgun: 0, rifle: 0 },
+      ammo: { ...START_AMMO },
+      upgrades: { pistol: noUpgrades(), shotgun: noUpgrades(), rifle: noUpgrades(), baton: noUpgrades(), bat: noUpgrades(), machete: noUpgrades() },
+      fireCd: 0, reloadT: 0, swing: 0, bottles: START_BOTTLES, cans: 0, gear: { vest: 0, helmet: 0 },
+    },
+    health: PLAYER_HEALTH,
+    funds: START_FUNDS,
+    kills: 0,
+  };
   const state: GameState = {
     seed,
+    night: opts.night ?? seed,
+    chapter: opts.chapter ?? 0,
+    carry: { ...carry, arsenal: cloneArsenal(carry.arsenal) },
     phase: 'playing',
     lossReason: null,
     map: level.map,
@@ -128,15 +181,9 @@ export function createGame(seed: number, level: Level = generateLevel(seed)): Ga
     timeLimit: level.timeLimit,
     remaining: level.timeLimit,
     tier: 0,
-    player: { pos: { ...level.spawn }, vel: { x: 0, y: 0 }, heading: 0, health: PLAYER_HEALTH, invuln: 0, vehicleId: null },
+    player: { pos: { ...level.spawn }, vel: { x: 0, y: 0 }, heading: 0, health: carry.health, invuln: 0, vehicleId: null },
     killerId: null,
-    arsenal: {
-      weapon: 'pistol', owned: ['pistol', 'baton'],
-      mag: { pistol: GUNS.pistol.mag, shotgun: 0, rifle: 0 },
-      ammo: { ...START_AMMO },
-      upgrades: { pistol: noUpgrades(), shotgun: noUpgrades(), rifle: noUpgrades(), baton: noUpgrades(), bat: noUpgrades(), machete: noUpgrades() },
-      fireCd: 0, reloadT: 0, swing: 0, bottles: START_BOTTLES, cans: 0,
-    },
+    arsenal: cloneArsenal(carry.arsenal),
     pickups: level.pickups.map((p) => ({ ...p, pos: { ...p.pos } })),
     stores: level.stores.map((st) => ({ ...st, pos: { ...st.pos } })),
     storeLatch: null,
@@ -148,7 +195,7 @@ export function createGame(seed: number, level: Level = generateLevel(seed)): Ga
     thrown: [],
     work: null,
     pumping: false,
-    kills: 0,
+    kills: carry.kills,
     zombies: [],
     vehicles: level.vehicles.map((v) => ({ ...v, pos: { ...v.pos } })),
     crates: level.crates.map((c) => ({ ...c, pos: { ...c.pos } })),
@@ -158,7 +205,7 @@ export function createGame(seed: number, level: Level = generateLevel(seed)): Ga
     hold: { taskId: null, progress: 0 },
     speedMul: 1,
     zombieMul: 1,
-    funds: START_FUNDS,
+    funds: carry.funds,
     events: [],
     flow: new Int16Array(level.map.cols * level.map.cols),
     flowCell: -1,
@@ -168,6 +215,38 @@ export function createGame(seed: number, level: Level = generateLevel(seed)): Ga
   populate(state);
   refreshFlow(state);
   return state;
+}
+
+/** The last chapter: its way out is the helicopter, not a door. */
+export function finalChapter(s: GameState): boolean {
+  return s.chapter >= CHAPTERS - 1;
+}
+
+/** Through the door: the next district, with everything you carry (and a bonus for time left). */
+export function nextChapter(s: GameState): GameState {
+  const chapter = s.chapter + 1;
+  const carry: Carry = {
+    arsenal: s.arsenal,
+    health: Math.min(PLAYER_HEALTH, s.player.health + CHAPTER_HEAL),
+    funds: s.funds + chapterBonus(s),
+    kills: s.kills,
+  };
+  return createGame(chapterSeed(s.night, chapter), undefined, { night: s.night, chapter, carry });
+}
+
+/** Funds for the seconds left on the clock when you got out. */
+export function chapterBonus(s: GameState): number {
+  return Math.floor(s.remaining * CHAPTER_BONUS);
+}
+
+/** Start this chapter again, with what you came into it with. */
+export function restartChapter(s: GameState): GameState {
+  return createGame(s.seed, undefined, { night: s.night, chapter: s.chapter, carry: s.carry });
+}
+
+/** Objectives show up one at a time: done ones, optional ones, and the one you are on now. */
+export function isRevealed(s: GameState, t: Task): boolean {
+  return t.done || !t.required || t === currentTask(s);
 }
 
 export function requiredDone(s: GameState): boolean {
@@ -239,6 +318,7 @@ function addZombie(s: GameState, kind: ZombieKind, pos: Vec2, rising: boolean): 
 /** The city's resting population: denser downtown, thin in the outskirts, none near the start. */
 function populate(s: GameState): void {
   const cap = ZOMBIE_CAP - 16; // leave room for the waves
+  const runners = CHAPTER_RUNNERS[Math.min(s.chapter, CHAPTER_RUNNERS.length - 1)]!; // deeper in, some of them run
   for (const b of s.map.blocks) {
     const rate = ZOMBIES_PER_BLOCK[b.district];
     const n = Math.floor(rate + next(s.rng));
@@ -247,7 +327,7 @@ function populate(s: GameState): void {
         // inside the block (yards, plazas, lots) or on its kerb
         const p = { x: b.x + range(s.rng, -3, b.size + 3), y: b.y + range(s.rng, -3, b.size + 3) };
         if (s.map.blocked[cellOf(s.map, p)] === 1 || dist(p, s.player.pos) < 28) continue;
-        addZombie(s, 'walker', p, false);
+        addZombie(s, runners > 0 && next(s.rng) < runners ? 'runner' : 'walker', p, false);
         break;
       }
     }
@@ -257,7 +337,10 @@ function populate(s: GameState): void {
 /** A wave arrives from just out of sight. Far-off zombies are recycled to make room. */
 function spawnWave(s: GameState, tier: number): void {
   const wave = SPAWNS_BY_TIER[tier]!;
-  const kinds: ZombieKind[] = [...Array<ZombieKind>(wave.runner).fill('runner'), ...Array<ZombieKind>(wave.walker).fill('walker')];
+  const more = CHAPTER_WAVES[Math.min(s.chapter, CHAPTER_WAVES.length - 1)]!;
+  const kinds: ZombieKind[] = [
+    ...Array<ZombieKind>(Math.round(wave.runner * more)).fill('runner'), ...Array<ZombieKind>(Math.round(wave.walker * more)).fill('walker'),
+  ];
   const ring = s.map.points.filter((p) => {
     const d = dist(p, s.player.pos);
     return d >= ZOMBIE_SPAWN_MIN_DIST && d <= WAVE_SPAWN_MAX_DIST;
@@ -359,7 +442,7 @@ export function interactionFor(s: GameState): Interaction | null {
   const v = playerVehicle(s);
   if (v) return { kind: 'exit', vehicleId: v.id };
   const p = s.player.pos;
-  const task = s.tasks.find((t) => !t.done && s.hold.taskId !== t.id && dist(t.pos, p) < TASK_RADIUS);
+  const task = s.tasks.find((t) => !t.done && isRevealed(s, t) && s.hold.taskId !== t.id && dist(t.pos, p) < TASK_RADIUS);
   if (task) return { kind: 'task', taskId: task.id };
   const store = s.stores.find((st) => dist(st.pos, p) < USE_RADIUS);
   if (store) return { kind: 'store', storeId: store.id };
@@ -439,7 +522,8 @@ function giveLoot(s: GameState, loot: Loot): void {
     const before = s.player.health;
     s.player.health = Math.min(PLAYER_HEALTH, s.player.health + MEDKIT_HEAL);
     s.events.push({ type: 'healed', amount: s.player.health - before });
-  } else if (loot === 'supplies') s.funds += 25;
+  } else if (loot === 'vest' || loot === 'helmet') wearGear(s, loot);
+  else if (loot === 'supplies') s.funds += 25;
   else if (loot === 'ammo') {
     const w = ammoTarget(s);
     const n = Math.ceil(GUNS[w].ammoPack / 2);
@@ -658,11 +742,36 @@ function takePickups(s: GameState): void {
     } else if (pk.kind === 'jerrycan') {
       a.cans += 1;
       s.events.push({ type: 'pickup', kind: 'jerrycan', amount: 1 });
+    } else if (pk.kind === 'vest' || pk.kind === 'helmet') {
+      wearGear(s, pk.kind);
+      s.events.push({ type: 'pickup', kind: pk.kind, amount: GEAR[pk.kind].durability });
     } else {
       giveWeapon(s, pk.kind);
       s.events.push({ type: 'pickup', kind: pk.kind, amount: isGun(pk.kind) ? GUNS[pk.kind].mag : 0 });
     }
   }
+}
+
+/** Put on (or replace) a piece of protective gear, good as new. */
+function wearGear(s: GameState, g: GearKind): void {
+  s.arsenal.gear[g] = GEAR[g].durability;
+}
+
+/** Hurt the player. Gear takes its share first, and wears down by what it took. Returns the damage
+ * that got through. */
+export function hurtPlayer(s: GameState, amount: number): number {
+  let through = amount;
+  for (const g of ['vest', 'helmet'] as const) {
+    const left = s.arsenal.gear[g];
+    if (left <= 0) continue;
+    const took = Math.min(left, amount * GEAR[g].absorb);
+    s.arsenal.gear[g] = left - took;
+    through -= took;
+    s.events.push({ type: 'gear-hit', gear: g, absorbed: took });
+    if (s.arsenal.gear[g] <= 1e-6) { s.arsenal.gear[g] = 0; s.events.push({ type: 'gear-broken', gear: g }); }
+  }
+  s.player.health -= through;
+  return through;
 }
 
 function giveWeapon(s: GameState, w: WeaponKind): void {
@@ -706,6 +815,12 @@ export function priceOf(s: GameState, item: StoreItem): number | null {
     case 'medkit': return MEDKIT_PRICE;
     case 'bottles': return BOTTLES_PRICE;
     case 'jerrycan': return JERRYCAN_PRICE;
+    case 'gear': {
+      // new, or a worn one swapped for new at the price of the wear
+      const left = a.gear[item.gear] / GEAR[item.gear].durability;
+      if (left >= 0.999) return null;
+      return Math.max(10, Math.round(GEAR[item.gear].price * (1 - left)));
+    }
     case 'upgrade': {
       if (!a.owned.includes(item.weapon)) return null;
       if (isMelee(item.weapon) && item.upgrade !== 'damage') return null;
@@ -729,6 +844,7 @@ export function buy(s: GameState, item: StoreItem): boolean {
     case 'medkit': s.player.health = Math.min(PLAYER_HEALTH, s.player.health + MEDKIT_HEAL); break;
     case 'bottles': a.bottles += 3; break;
     case 'jerrycan': a.cans += 1; break;
+    case 'gear': wearGear(s, item.gear); break;
     case 'upgrade': {
       a.upgrades[item.weapon][item.upgrade]++;
       // a bigger magazine comes loaded
@@ -1110,7 +1226,10 @@ function updateSafehouse(s: GameState): void {
     s.lockedNotice = null;
     return;
   }
-  if (requiredDone(s)) {
+  if (requiredDone(s) && !finalChapter(s)) {
+    s.phase = 'cleared'; // through the door into the next district
+    s.events.push({ type: 'chapter-cleared', chapter: s.chapter });
+  } else if (requiredDone(s)) {
     s.phase = 'won';
     s.events.push({ type: 'won' });
   } else if (s.lockedNotice !== 'safehouse') {
@@ -1173,13 +1292,13 @@ function updateZombies(s: GameState, dt: number): void {
         continue;
       }
       if (s.player.invuln > 0) continue;
-      s.player.health -= ATTACK_DAMAGE;
+      const took = hurtPlayer(s, ATTACK_DAMAGE);
       s.player.invuln = HIT_INVULNERABLE;
       if (d > 1e-6) {
         s.player.vel.x += (dx / d) * KNOCKBACK;
         s.player.vel.y += (dy / d) * KNOCKBACK;
       }
-      s.events.push({ type: 'player-hit', damage: ATTACK_DAMAGE, by: z.id });
+      s.events.push({ type: 'player-hit', damage: took, by: z.id });
       if (s.player.health <= 0) {
         s.player.health = 0;
         z.action = 'feed';

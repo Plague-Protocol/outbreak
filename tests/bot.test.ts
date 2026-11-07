@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { createGame, currentTask, interactionFor, requiredDone, step, withVehiclesBlocked, type GameState } from '../src/core/state';
 import { cellOf, distanceField } from '../src/core/map';
+import { CHAPTERS } from '../src/core/config';
 import type { Input, Vec2 } from '../src/core/types';
 
 const DT = 1 / 30;
@@ -32,12 +33,27 @@ describe('tuning sanity (route-following bot, no dodging, no optional tasks)', (
       const g = createGame(seed);
       const field = { target: null as Vec2 | null, f: null as Int16Array | null };
       for (let i = 0; i < 30 * 60 * 8 && g.phase === 'playing'; i++) step(g, botInput(g, field), DT);
-      if (g.phase === 'won') { wins++; slack += g.remaining / g.timeLimit; }
+      if (g.phase === 'won' || g.phase === 'cleared') { wins++; slack += g.remaining / g.timeLimit; }
       else if (g.lossReason === 'time') timeouts++;
       else caught++;
     }
     process.stdout.write(`bot: ${wins}/${N} won, ${timeouts} timeouts, ${caught} caught, avg slack ${(slack / Math.max(1, wins)).toFixed(2)}` + "\n");
     expect(timeouts).toBeLessThan(N * 0.1); // the clock itself must be beatable
     expect(wins).toBeGreaterThan(N * 0.3);
+  }, 120_000);
+
+  it('the last chapter (runners in the crowd, bigger waves) is still beatable', () => {
+    let wins = 0, timeouts = 0;
+    const N = 20;
+    for (let seed = 1; seed <= N; seed++) {
+      const g = createGame(seed * 7919, undefined, { chapter: CHAPTERS - 1 });
+      const field = { target: null as Vec2 | null, f: null as Int16Array | null };
+      for (let i = 0; i < 30 * 60 * 8 && g.phase === 'playing'; i++) step(g, botInput(g, field), DT);
+      if (g.phase === 'won') wins++;
+      else if (g.lossReason === 'time') timeouts++;
+    }
+    process.stdout.write(`bot, last chapter: ${wins}/${N} won, ${timeouts} timeouts` + "\n");
+    expect(timeouts).toBeLessThan(N * 0.1);
+    expect(wins).toBeGreaterThan(N * 0.2); // a bot that never dodges or fights; people do both
   }, 120_000);
 });

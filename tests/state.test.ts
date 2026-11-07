@@ -6,7 +6,7 @@ import {
 } from '../src/core/state';
 import { cellOf, reachable } from '../src/core/map';
 import {
-  AMMO_PRICES, ATTACK_DAMAGE, ATTACK_WINDUP, GUNS, MEDKIT_HEAL, MELEE, PLAYER_HEALTH, SAFE_AFTER, SPAWNS_BY_TIER, STORE_COUNT,
+  AMMO_PRICES, ATTACK_DAMAGE, CHAPTERS, ATTACK_WINDUP, GUNS, MEDKIT_HEAL, MELEE, PLAYER_HEALTH, SAFE_AFTER, SPAWNS_BY_TIER, STORE_COUNT,
   TASK_HOLD_SECONDS, UPGRADE_LEVELS, VEHICLES, WEAPON_PRICES, ZOMBIE_CAP, ZOMBIE_HEALTH,
 } from '../src/core/config';
 import type { Zombie } from '../src/core/types';
@@ -19,6 +19,13 @@ const DT = 1 / 30;
 function calmGame(seed = 1): GameState {
   const g = createGame(seed);
   g.zombies = []; // isolate from zombie behaviour
+  return g;
+}
+
+/** The night's last chapter: its way out is the helicopter. */
+function finalGame(seed = 1): GameState {
+  const g = createGame(seed, undefined, { chapter: CHAPTERS - 1 });
+  g.zombies = [];
   return g;
 }
 
@@ -105,7 +112,7 @@ describe('interactions', () => {
     expect(t.done).toBe(false);
   });
 
-  it('a task whose dependency is not done cannot be started', () => {
+  it('a step that is not up yet cannot be started (the gate waits for the power)', () => {
     let found = false;
     for (let seed = 1; seed < 200 && !found; seed++) {
       const g = calmGame(seed);
@@ -113,8 +120,8 @@ describe('interactions', () => {
       if (!gate) continue;
       found = true;
       g.player.pos = { ...gate.pos };
+      expect(interactionFor(g)?.kind === 'task').toBe(false); // not revealed: nothing to use here
       step(g, USE, DT);
-      expect(g.events.some((e) => e.type === 'task-locked')).toBe(true);
       expect(g.hold.taskId).toBeNull();
       doTask(g, g.tasks.find((t) => t.id === 'power')!);
       doTask(g, gate);
@@ -252,7 +259,7 @@ describe('win and lose', () => {
     expect(g.events).toContainEqual({ type: 'safehouse-locked' });
   });
 
-  it('completing required tasks then reaching the safehouse in time wins', () => {
+  it('completing required tasks then reaching the way out clears the chapter (the last one wins)', () => {
     for (const seed of [1, 2, 3, 4, 5]) {
       const g = calmGame(seed);
       doRequired(g);
@@ -260,12 +267,17 @@ describe('win and lose', () => {
       expect(g.phase).toBe('playing');
       g.player.pos = { ...g.safehouse };
       step(g, IDLE, DT);
-      expect(g.phase).toBe('won');
+      expect(g.phase).toBe('cleared');
+      const last = finalGame(seed);
+      doRequired(last);
+      last.player.pos = { ...last.safehouse };
+      step(last, IDLE, DT);
+      expect(last.phase).toBe('won');
     }
   });
 
   it('optional tasks are not needed to win', () => {
-    const g = calmGame(7);
+    const g = finalGame(7);
     doRequired(g);
     expect(g.tasks.some((t) => !t.required && !t.done)).toBe(true);
     g.player.pos = { ...g.safehouse };
@@ -274,7 +286,7 @@ describe('win and lose', () => {
   });
 
   it('a won game cannot then be lost by the clock', () => {
-    const g = calmGame(7);
+    const g = finalGame(7);
     doRequired(g);
     g.player.pos = { ...g.safehouse };
     step(g, IDLE, DT);

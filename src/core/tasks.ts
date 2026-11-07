@@ -10,8 +10,9 @@ interface TaskDef {
 }
 
 // Required-capable tasks come in groups; a group's internal order is fixed (power before gate).
+// The map always comes last: it shows where the way out is.
+const MAP: TaskDef = { id: 'map', label: 'Find the map', hint: 'Shows the way out', requires: [] };
 const REQUIRED_GROUPS: TaskDef[][] = [
-  [{ id: 'map', label: 'Find the map', hint: 'Shows where the safehouse is', requires: [] }],
   [{ id: 'key', label: 'Find the key', hint: 'The safehouse door is locked', requires: [] }],
   [
     { id: 'power', label: 'Restore power', hint: 'Start the generator', requires: [] },
@@ -36,13 +37,13 @@ export const MIN_TASK_SEPARATION = 45;
 export const MIN_SPAWN_DISTANCE = 25;
 
 /**
- * Pick and place the task chain. Required tasks come first, in an order where every
- * dependency precedes its dependant; optional tasks follow. Every position is
+ * Pick and place the task chain. Required tasks come first, in the order they are revealed (every
+ * dependency before its dependant, the map last); optional tasks follow. Every position is
  * reachable from the spawn point.
  */
 export function generateChain(rng: Rng, map: MapData, spawn: Vec2, safehouse: Vec2): Task[] {
-  const groups = shuffle(rng, REQUIRED_GROUPS).slice(0, 3);
-  const defs: TaskDef[] = groups.flat();
+  const groups = shuffle(rng, REQUIRED_GROUPS).slice(0, 2);
+  const defs: TaskDef[] = [...groups.flat(), MAP];
   const optionalCount = int(rng, 1, 2);
   const optional = shuffle(rng, OPTIONAL_POOL).slice(0, optionalCount);
 
