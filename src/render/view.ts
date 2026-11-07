@@ -20,7 +20,7 @@ const YAW = Math.PI / 4; // fixed yaw (matches the control mapping)
 const POOL_LIGHTS = Math.max(0, Math.min(6, Number(params.get('lights') ?? 3))); // real lights at nearby lamps/fires
 /** Scenes where you crouch to work (the rest, you stand). */
 const KNEEL_SCENES = ['generator', 'gate', 'chained-gate', 'jerrycans', 'medkit', 'survivor-talk', 'fuse-box', 'junction-box', 'gas-valve', 'crossroads', 'fallen-guard', 'fallen-woman', 'fallen-soldier', 'crashed-bus', 'phone-booth'];
-const FOG = 0x06080c;
+const FOG = 0x0a0e16; // a dark night blue, not black: the far streets fade into it
 const MAX_VISIBLE_ZOMBIES = 12; // nearest ones get a skinned character; the rest are off screen anyway
 
 /** Soft dark blob for contact shadows (generated). */
@@ -80,7 +80,7 @@ export class GameView {
   private shadows: InstancedMesh;
   private flashlight: SpotLight;
   private pool: PointLight[] = [];
-  private fill = new PointLight(0x9fb6ff, 6, 7, 1.5);
+  private fill = new PointLight(0x9fb6ff, 9, 9, 1.5);
   private focus = new Vector3();
   private target = new Vector3();
   private tmp = new Object3D();
@@ -104,9 +104,9 @@ export class GameView {
     container.appendChild(this.renderer.domElement);
     this.scene.fog = new Fog(FOG, 30, 80);
 
-    // night: cold sky fill, a weak moon, the flashlight does the real work
-    this.scene.add(new HemisphereLight(0x3a4a6c, 0x14100c, 1.9));
-    const moon = new DirectionalLight(0x9fb4ff, 1.0);
+    // night: a cold sky fill and a moon bright enough to make out the street, the flashlight does the rest
+    this.scene.add(new HemisphereLight(0x5a6c94, 0x262018, 3.8));
+    const moon = new DirectionalLight(0xa8bcff, 2.3);
     moon.position.set(-30, 60, 20);
     this.scene.add(moon);
     this.flashlight = new SpotLight(0xffe9c4, 70, 26, 0.5, 0.55, 1.4);
@@ -550,8 +550,8 @@ export class GameView {
     const elev = ELEVATION + (1 - c) * 0.35;
     const yaw = YAW + (1 - c) * 0.5;
     const fog = this.scene.fog as Fog;
-    fog.near = dist * 0.92;
-    fog.far = dist * 1.75;
+    fog.near = dist * 0.95;
+    fog.far = dist * 2.1;
     this.camera.position.set(
       this.focus.x + Math.cos(elev) * Math.cos(yaw) * dist,
       Math.sin(elev) * dist,
