@@ -1,15 +1,16 @@
 import {
-  AdditiveBlending, CanvasTexture, Color, CylinderGeometry, DirectionalLight, Fog, Group, HemisphereLight, InstancedMesh,
+  AdditiveBlending, BoxGeometry, CanvasTexture, Color, CylinderGeometry, DirectionalLight, Fog, Group, HemisphereLight, InstancedMesh,
   Mesh, MeshBasicMaterial, MeshLambertMaterial, Object3D, PerspectiveCamera, PlaneGeometry, PointLight, RingGeometry, Scene, SpotLight,
   Vector3, WebGLRenderer, type Material,
 } from 'three';
 import { Actor, type CharacterAssets, type ClipName } from './characters';
 import { buildCity, type CityMeshes, type LightSource } from './city';
 import { MeshBuilder } from './mesh';
-import { barricadeMesh, barricadeRubble, bottleMesh, burningFlare, Effects, Evac, gearMesh, glint, SubwayExit, pickupMesh, pulseGlint, storefrontMesh, storyItem, vehicleMesh, weaponMesh, wreckVehicle } from './props';
+import { barricadeMesh, barricadeRubble, bottleMesh, burningFlare, Effects, Evac, gearMesh, glint, SubwayExit, type StoryItem, pickupMesh, pulseGlint, storefrontMesh, storyItem, vehicleMesh, weaponMesh, wreckVehicle } from './props';
 import { currentTask, finalChapter, gunStats, isGun, isRevealed, playerSpeed, playerVehicle, requiredDone, type GameState } from '../core/state';
 import { ATTACK_WINDUP, MELEE, SAFEHOUSE_RADIUS, TASK_RADIUS } from '../core/config';
 import type { GameEvent, TaskId, Vec2, WeaponKind, Zombie } from '../core/types';
+import { stepDef } from '../core/content';
 
 const params = new URLSearchParams(location.search);
 const VIEW_SPAN = Number(params.get('zoom')) || 24; // world units visible across the narrower screen axis
@@ -17,7 +18,8 @@ const FOV = 32;
 const ELEVATION = (52 * Math.PI) / 180; // camera pitch: steeper than isometric so streets read
 const YAW = Math.PI / 4; // fixed yaw (matches the control mapping)
 const POOL_LIGHTS = Math.max(0, Math.min(6, Number(params.get('lights') ?? 3))); // real lights at nearby lamps/fires
-const KNEEL_TASKS: TaskId[] = ['power', 'gate', 'fuel', 'medkit', 'rescue'];
+/** Scenes where you crouch to work (the rest, you stand). */
+const KNEEL_SCENES = ['generator', 'gate', 'chained-gate', 'jerrycans', 'medkit', 'survivor-talk', 'fuse-box', 'junction-box', 'gas-valve', 'crossroads', 'fallen-guard', 'fallen-woman', 'fallen-soldier', 'crashed-bus', 'phone-booth'];
 const FOG = 0x06080c;
 const MAX_VISIBLE_ZOMBIES = 12; // nearest ones get a skinned character; the rest are off screen anyway
 
@@ -45,12 +47,14 @@ export class GameView {
   private gunKind: WeaponKind | null = null;
   private zombies = new Map<number, Actor>();
   private actorPool: Actor[] = [];
-  private extras: Array<{ actor: Actor; task: TaskId }> = [];
+  /** People at the steps: `alive` ones move (the fallen do not); `leaves` ones are gone once it is done. */
+  private extras: Array<{ actor: Actor; task: TaskId; alive: boolean; leaves: boolean }> = [];
   /** Objective props that change with the task: items you take vanish, the gate swings open. */
   /** Things at each step. `scenery` stays whether or not the step is up yet; `part` is a fuse to find; `burning`
    * is the lit flare (only while it burns). */
   private taskItems: Array<{ group: Group; task: TaskId; whenDone: boolean; scenery?: boolean; part?: number; burning?: boolean }> = [];
   private nora: Actor | null = null;
+  private noraKey = '';
   /** Searchable house doors (a glint until searched). */
   private houseGlints = new Map<number, Object3D>();
   /** Survivors: their character, the glint over them, and the bag they want back. */
@@ -240,17 +244,20 @@ export class GameView {
   }
 
   /**
-   * Story props at each objective. Things you take (keys, keycard, map, supplies) lie where you
-   * can see them and vanish once taken; the fallen carry them; the generator and gate change state.
+   * Story props at each step, from the scene preset its content names. Things you take lie where you
+   * can see them once the step is up and vanish once taken; scenery is there all along; people kneel,
+   * talk, or lie where they fell.
    */
   private buildTaskProps(s: GameState): Group {
     const out = new Group();
     const b = new MeshBuilder(); // static scenery, merged into one mesh
-    const person = (task: TaskId, skin: 'humanMaleA' | 'humanFemaleA', clip: ClipName, at: Vec2, yaw: number, once: boolean) => {
+    const person = (task: TaskId, skin: 'humanMaleA' | 'humanFemaleA', clip: ClipName, at: Vec2, yaw: number,
+      opts: { once?: boolean; leaves?: boolean; scale?: number } = {}) => {
       const a = new Actor(this.assets, skin);
-      a.play(clip, { once, fade: 0, startAt: once ? 0.999 : 0 });
+      a.play(clip, { once: opts.once, fade: 0, startAt: opts.once ? 0.999 : 0 });
       a.update(at.x, at.y, Math.PI / 2 - yaw, 0.016, true);
-      this.extras.push({ actor: a, task });
+      if (opts.scale) a.root.scale.multiplyScalar(opts.scale);
+      this.extras.push({ actor: a, task, alive: !opts.once, leaves: !!opts.leaves });
       this.scene.add(a.root);
       return a;
     };
@@ -262,95 +269,184 @@ export class GameView {
       out.add(g);
       this.taskItems.push({ group: g, task, whenDone, scenery: extra.scenery, part: extra.part, burning: extra.burning });
     };
-    const lamp = (hex: number) => basic(new MeshBuilder().box(0, 0, 0, 0.14, 0.14, 0.14, hex));
     const basic = (mb: MeshBuilder) => new Mesh(mb.build(), new MeshBasicMaterial({ vertexColors: true }));
+    const lamp = (hex: number) => basic(new MeshBuilder().box(0, 0, 0, 0.14, 0.14, 0.14, hex));
+    /** A status lamp: red until the step is done, then green. */
+    const lamps = (id: TaskId, x: number, z: number, y: number) => {
+      add(id, lamp(0x7a1010), x, z, 0, false, { scenery: true, y });
+      add(id, lamp(0x40ff80), x, z, 0, true, { scenery: true, y });
+    };
+    const bars = (open: boolean) => {
+      const mb = new MeshBuilder();
+      for (let k = 0; k <= 6; k++) mb.box(open ? 0.05 : k * 0.2, 1.2, open ? k * 0.2 : 0, 0.05, 2.2, 0.05, 0x55595f);
+      mb.box(open ? 0.05 : 0.6, 2.2, open ? 0.6 : 0, open ? 0.05 : 1.25, 0.08, open ? 1.25 : 0.05, 0x55595f);
+      return new Mesh(mb.build(), new MeshLambertMaterial({ vertexColors: true }));
+    };
+    const gate = (id: TaskId, x: number, z: number, gy: number) => {
+      for (const o of [-1.4, 1.4]) b.box(x + o, gy + 1.3, z, 0.25, 2.6, 0.25, 0x40444a);
+      add(id, bars(false), x - 1.25, z, 0, false, { scenery: true });
+      add(id, bars(false), x + 1.25, z, Math.PI, false, { scenery: true });
+      add(id, bars(true), x - 1.25, z, 0, true, { scenery: true });
+      add(id, bars(true), x + 1.25, z, Math.PI, true, { scenery: true });
+    };
+
     for (const t of s.tasks) {
+      const def = stepDef(t.id);
+      const id = t.id;
       const x = t.pos.x + 1.4, z = t.pos.y + 1.4;
       const gy = this.groundAt(s, { x, y: z });
-      switch (t.id) {
-        case 'map':
-          b.box(x, gy + 0.4, z, 0.9, 0.8, 0.9, 0x5a4630, 0x6a5238); // the crate the map lies on
-          add('map', storyItem('map'), x, z, 0.4);
+      let itemAt: { x: number; z: number; y?: number; yaw?: number } | null = { x, z, yaw: 0.4 }; // where the thing you take lies
+      switch (def.scene) {
+        case 'map-crate': b.box(x, gy + 0.4, z, 0.9, 0.8, 0.9, 0x5a4630, 0x6a5238); break; // the map lies on a crate
+        case 'fallen-woman': // her keys dropped by her hand
+          person(id, 'humanFemaleA', 'Death', { x, y: z }, 0.7, { once: true });
+          itemAt = { x: t.pos.x + 0.5, z: t.pos.y + 0.4, yaw: 1.1 };
           break;
-        case 'key': // the fallen woman, her keys dropped by her hand
-          person('key', 'humanFemaleA', 'Death', { x, y: z }, 0.7, true);
-          add('key', storyItem('key'), t.pos.x + 0.5, t.pos.y + 0.4, 1.1);
+        case 'fallen-soldier':
+          person(id, 'humanMaleA', 'Death', { x, y: z }, 2.3, { once: true });
+          itemAt = { x: t.pos.x + 0.5, z: t.pos.y + 0.3, yaw: -0.5 };
           break;
-        case 'keycard': // the fallen soldier, his keycard on its lanyard beside him
-          person('keycard', 'humanMaleA', 'Death', { x, y: z }, 2.3, true);
-          add('keycard', storyItem('keycard'), t.pos.x + 0.5, t.pos.y + 0.3, -0.5);
+        case 'fallen-guard':
+          person(id, 'humanMaleA', 'Death', { x, y: z }, 1.2, { once: true });
+          itemAt = { x: t.pos.x + 0.6, z: t.pos.y + 0.2, yaw: 0.2 };
           break;
-        case 'power': { // generator; its lamp goes from dead red to running green
+        case 'generator': // its lamp goes from dead red to running green
           b.box(x, gy + 0.55, z, 1.4, 1.1, 0.9, 0x6b6f3a, 0x585c30).box(x + 0.5, gy + 1.2, z, 0.15, 0.4, 0.15, 0x222222);
           b.box(x - 0.3, gy + 0.6, z + 0.46, 0.5, 0.35, 0.02, 0x2a2b2e);
-          add('power', basic(new MeshBuilder().box(0, 0, 0, 0.12, 0.12, 0.12, 0x7a1010)), x - 0.45, z + 0.47, 0);
-          this.taskItems[this.taskItems.length - 1]!.group.position.y = gy + 0.95;
-          add('power', basic(new MeshBuilder().box(0, 0, 0, 0.14, 0.14, 0.14, 0x40ff80)), x - 0.45, z + 0.47, 0, true);
-          this.taskItems[this.taskItems.length - 1]!.group.position.y = gy + 0.95;
+          lamps(id, x - 0.45, z + 0.47, gy + 0.95);
           break;
-        }
-        case 'gate': { // posts stay; the bars are shut until it opens, then stand swung aside
-          for (const o of [-1.4, 1.4]) b.box(x + o, gy + 1.3, z, 0.25, 2.6, 0.25, 0x40444a);
-          const bars = (open: boolean) => {
-            const mb = new MeshBuilder();
-            for (let k = 0; k <= 6; k++) mb.box(open ? 0.05 : k * 0.2, 1.2, open ? k * 0.2 : 0, 0.05, 2.2, 0.05, 0x55595f);
-            mb.box(open ? 0.05 : 0.6, 2.2, open ? 0.6 : 0, open ? 0.05 : 1.25, 0.08, open ? 1.25 : 0.05, 0x55595f);
-            return new Mesh(mb.build(), new MeshLambertMaterial({ vertexColors: true }));
-          };
-          add('gate', bars(false), x - 1.25, z, 0);
-          add('gate', bars(false), x + 1.25, z, Math.PI);
-          add('gate', bars(true), x - 1.25, z, 0, true);
-          add('gate', bars(true), x + 1.25, z, Math.PI, true);
+        case 'gate': gate(id, x, z, gy); break;
+        case 'chained-gate': // a chain and padlock on the gate until you cut it
+          gate(id, x, z, gy);
+          add(id, new Mesh(new MeshBuilder().box(0, 0, 0, 0.5, 0.1, 0.1, 0x8a8d92).box(0, -0.12, 0.02, 0.16, 0.18, 0.08, 0x6a5a20).build(),
+            new MeshLambertMaterial({ vertexColors: true })), x, z + 0.06, 0, false, { scenery: true, y: gy + 1.1 });
           break;
-        }
-        case 'radio':
+        case 'radio-shop':
           b.box(x, gy + 0.5, z, 1.4, 1, 0.7, 0x3d2c22, 0x4a3628).box(x, gy + 1.12, z, 0.5, 0.25, 0.25, 0x1b1d20);
-          b.box(x + 0.15, gy + 1.5, z, 0.03, 0.6, 0.03, 0x9a9da3); // aerial
+          b.box(x + 0.15, gy + 1.5, z, 0.03, 0.6, 0.03, 0x9a9da3);
           break;
-        case 'insulin': // a pharmacy fridge, glass front, and the pens in a cool box on the counter beside it
+        case 'pharmacy': // a fridge with a glass front; what you take is on the counter beside it
           b.box(x, gy + 1.0, z, 1.0, 2.0, 0.8, 0xd8dcd8, 0xe4e8e4).box(x, gy + 1.1, z + 0.41, 0.8, 1.5, 0.02, 0x5f7f98);
           b.box(x + 1.05, gy + 0.45, z, 1.0, 0.9, 0.7, 0x6a5a48, 0x7a6a58);
-          add('insulin', storyItem('insulin'), x + 1.05, z, 0.3, false, { y: gy + 0.9 });
+          itemAt = { x: x + 1.05, z, y: gy + 0.9, yaw: 0.3 };
           break;
-        case 'deliver': { // the laundromat: machines in a row; a father kneels by his daughter
+        case 'butcher': // a cold room: white walls, a steel door, a block on the counter
+          b.box(x, gy + 1.1, z, 2.2, 2.2, 1.2, 0xe6e6e0, 0xd8d8d2).box(x, gy + 1.0, z + 0.61, 0.9, 1.9, 0.02, 0x9aa0a6);
+          b.box(x + 1.6, gy + 0.45, z, 1.0, 0.9, 0.7, 0x8a7a68, 0x9a8a78);
+          itemAt = { x: x + 1.6, z, y: gy + 0.9, yaw: 0.2 };
+          break;
+        case 'crossroads': // the bait lies where you dropped it, once you have
+          add(id, storyItem('bait'), x, z, 0.6, true, { scenery: true });
+          add(id, burningFlare(), x, z, 0.6, true, { burning: true });
+          itemAt = null;
+          break;
+        case 'laundromat': // machines in a row; a father kneels by his daughter
           for (let k = 0; k < 4; k++) {
             b.box(x - 1.6 + k * 1.0, gy + 0.45, z - 1.1, 0.9, 0.9, 0.8, 0xe8e8e2, 0xf0f0ea).box(x - 1.6 + k * 1.0, gy + 0.5, z - 0.69, 0.5, 0.5, 0.02, 0x30343a);
           }
-          person('deliver', 'humanMaleA', 'Kneel', { x, y: z }, 0.5, false);
-          const girl = person('deliver', 'humanFemaleA', 'Idle', { x: x + 0.9, y: z + 0.2 }, -0.4, false);
-          girl.root.scale.multiplyScalar(0.7);
+          person(id, 'humanMaleA', 'Kneel', { x, y: z }, 0.5);
+          person(id, 'humanFemaleA', 'Idle', { x: x + 0.9, y: z + 0.2 }, -0.4, { scale: 0.7 });
+          itemAt = null;
           break;
-        }
-        case 'fuses': // the shutter's fuse box: red lamp until the fuses are in, then green
+        case 'fuse-box': // red lamp until the pieces are in, then green
           b.box(x, gy + 0.8, z, 0.9, 1.6, 0.45, 0x5a6066, 0x666c72).box(x, gy + 0.95, z + 0.235, 0.7, 1.0, 0.02, 0x40454a);
-          add('fuses', lamp(0x7a1010), x, z + 0.26, 0, false, { scenery: true, y: gy + 1.5 });
-          add('fuses', lamp(0x40ff80), x, z + 0.26, 0, true, { scenery: true, y: gy + 1.5 });
-          t.parts?.forEach((q, i) => add('fuses', storyItem('fuse'), q.x + 1.2, q.y + 1.2, i * 1.3, false, { part: i }));
+          lamps(id, x, z + 0.26, gy + 1.5);
           break;
-        case 'flare': // a road flare on the crossroads; lit, it burns red
-          add('flare', storyItem('flare'), x, z, 0.5);
-          add('flare', burningFlare(), x, z, 0.5, true, { burning: true });
+        case 'junction-box': // a street cabinet, door hanging open, cut wires
+          b.box(x, gy + 0.7, z, 1.2, 1.4, 0.5, 0x4f5a50, 0x5a665b).box(x + 0.75, gy + 0.75, z + 0.4, 0.05, 1.2, 0.7, 0x4f5a50);
+          for (const [k, c] of [[0, 0xe8443a], [1, 0x3f8fe8], [2, 0xf2c230], [3, 0x4cc46a]] as const) b.box(x - 0.36 + k * 0.24, gy + 0.6, z + 0.27, 0.05, 0.5, 0.05, c);
+          lamps(id, x, z + 0.27, gy + 1.25);
+          break;
+        case 'radio-mast': // a lattice tower with a lamp on top
+          for (const [ox, oz] of [[-0.5, -0.5], [0.5, -0.5], [-0.5, 0.5], [0.5, 0.5]] as const) b.box(x + ox, gy + 3, z + oz, 0.1, 6, 0.1, 0x7a7e84);
+          for (let k = 1; k < 6; k++) b.box(x, gy + k, z - 0.5, 1.0, 0.06, 0.06, 0x7a7e84).box(x, gy + k, z + 0.5, 1.0, 0.06, 0.06, 0x7a7e84);
+          b.box(x, gy + 0.4, z + 0.9, 0.8, 0.8, 0.5, 0x3a3e44, 0x44484e); // the battery cabinet
+          lamps(id, x, z, gy + 6.15);
+          break;
+        case 'office-desk': // the station office desk under a lamp
+          b.box(x, gy + 0.75, z, 1.8, 0.08, 0.9, 0x6a4e32).box(x - 0.8, gy + 0.37, z, 0.08, 0.74, 0.8, 0x5a4028).box(x + 0.8, gy + 0.37, z, 0.08, 0.74, 0.8, 0x5a4028);
+          b.box(x + 0.1, gy + 0.45, z - 0.8, 0.5, 0.9, 0.5, 0x2a2b2e);
+          add(id, basic(new MeshBuilder().box(0.6, 0.18, 0, 0.18, 0.12, 0.18, 0xffe2a8)), x, z, 0, false, { scenery: true, y: gy + 0.8 });
+          itemAt = null;
+          break;
+        case 'security-door': // a steel door in a concrete wall, a keypad beside it
+          b.box(x, gy + 1.5, z - 0.3, 4, 3, 0.4, 0x6a6c70, 0x5a5c60).box(x, gy + 1.15, z - 0.08, 1.2, 2.3, 0.06, 0x3a4048);
+          b.box(x + 0.95, gy + 1.3, z - 0.07, 0.25, 0.35, 0.05, 0x222428);
+          lamps(id, x + 0.95, z - 0.03, gy + 1.55);
+          itemAt = null;
+          break;
+        case 'ambulance': // abandoned, back doors open; what you take sits on the step
+          b.box(x, gy + 1.2, z, 2.4, 2.4, 5.5, 0xe8e8e2, 0xf0f0ea).box(x + 1.21, gy + 1.0, z, 0.02, 0.4, 5.3, 0xc8282a);
+          b.box(x, gy + 2.45, z + 1.6, 0.8, 0.15, 0.3, 0x3a6ad8);
+          itemAt = { x: x, z: z + 3.0, yaw: 0.2 };
+          break;
+        case 'field-medic': // a medic kneels over a soldier lying on a stretcher
+          b.box(x, gy + 0.2, z, 0.9, 0.06, 2.3, 0x4a5a3a);
+          person(id, 'humanMaleA', 'Death', { x, y: z }, 0, { once: true });
+          person(id, 'humanFemaleA', 'Kneel', { x: x + 1.0, y: z + 0.2 }, -1.6);
+          itemAt = null;
+          break;
+        case 'phone-booth': // a phone booth; someone may be hiding in it
+          for (const [ox, oz] of [[-0.6, -0.6], [0.6, -0.6], [-0.6, 0.6], [0.6, 0.6]] as const) b.box(x + ox, gy + 1.25, z + oz, 0.08, 2.5, 0.08, 0xb02a20);
+          b.box(x, gy + 2.55, z, 1.3, 0.12, 1.3, 0xb02a20, 0xc0342a).box(x, gy + 1.4, z - 0.58, 0.4, 0.5, 0.12, 0x222428);
+          add(id, new Mesh(new BoxGeometry(1.2, 2.3, 1.2), new MeshBasicMaterial({ color: 0x9fc0d8, transparent: true, opacity: 0.12, depthWrite: false })),
+            x, z, 0, false, { scenery: true, y: gy + 1.2 });
+          if (t.escort) person(id, t.escort.skin, 'Kneel', { x, y: z }, 2.5, { leaves: true, scale: t.escort.scale });
+          itemAt = null;
+          break;
+        case 'mother': // a bakery doorway, lit; his mother waiting
+          b.box(x, gy + 1.6, z - 0.6, 3.2, 3.2, 0.3, 0x8a6a48, 0x9a7a58);
+          add(id, basic(new MeshBuilder().box(0, 1.1, 0, 1.6, 1.4, 0.04, 0xffd090)), x, z - 0.42, 0, false, { scenery: true });
+          person(id, 'humanFemaleA', 'Talk', { x, y: z + 0.6 }, -2.2);
+          itemAt = null;
+          break;
+        case 'shelter-door': // the school shelter's door, lit, a woman at it
+          b.box(x - 1.0, gy + 1.4, z - 0.5, 0.4, 2.8, 0.4, 0x8a8478).box(x + 1.0, gy + 1.4, z - 0.5, 0.4, 2.8, 0.4, 0x8a8478);
+          add(id, basic(new MeshBuilder().box(0, 1.2, 0, 1.6, 2.4, 0.04, 0xffc070)), x, z - 0.55, 0, false, { scenery: true });
+          person(id, 'humanFemaleA', 'Talk', { x, y: z + 0.4 }, -2.3);
+          itemAt = null;
+          break;
+        case 'loading-dock': // pallets, crates and a container
+          b.box(x - 1.5, gy + 1.3, z - 1.5, 2.4, 2.6, 6, 0x5a3a2a, 0x6a4a34);
+          for (const [ox, oz, h] of [[1.2, -0.5, 0.9], [1.9, 0.6, 0.6], [1.0, 1.4, 1.2]] as const) b.box(x + ox, gy + h / 2, z + oz, 1.0, h, 1.0, 0x7a6040, 0x8a7050);
+          itemAt = null;
+          break;
+        case 'hardware-van': // a van, back open, tools spilling out
+          b.box(x, gy + 1.15, z, 2.3, 2.3, 5.0, 0x6a7a8a, 0x7a8a9a).box(x + 1.16, gy + 1.4, z, 0.02, 0.5, 3.0, 0xd8b030);
+          itemAt = { x, z: z + 2.8, yaw: 0.5 };
+          break;
+        case 'gas-valve': // a pipe out of the pavement with a red wheel
+          b.box(x, gy + 0.5, z, 0.3, 1.0, 0.3, 0xc8a83a).box(x, gy + 0.9, z, 1.4, 0.25, 0.25, 0xc8a83a);
+          b.box(x, gy + 1.2, z, 0.7, 0.7, 0.08, 0xb02020);
+          itemAt = null;
+          break;
+        case 'flare':
+          add(id, burningFlare(), x, z, 0.5, true, { burning: true });
           break;
         case 'barricade': // across the street; once pulled apart, the junk lies pushed aside
-          add('barricade', barricadeMesh(), x, z, Math.PI / 4, false, { scenery: true });
-          add('barricade', barricadeRubble(), x, z, Math.PI / 4, true, { scenery: true });
+          add(id, barricadeMesh(), x, z, Math.PI / 4, false, { scenery: true });
+          add(id, barricadeRubble(), x, z, Math.PI / 4, true, { scenery: true });
+          itemAt = null;
           break;
-        case 'survivor': // a crashed minibus on its side; Nora crouched in its shadow
+        case 'crashed-bus': // a minibus on its side; someone crouched in its shadow
           b.box(x + 1.2, gy + 1.1, z + 0.6, 2.2, 2.2, 5.4, 0xc8a83a, 0xb8982f).box(x + 2.31, gy + 1.3, z + 0.6, 0.02, 0.7, 4.6, 0x15181c);
           b.box(x + 1.2, gy + 0.2, z + 3.4, 1.6, 0.4, 0.3, 0x2a2b2e);
-          person('survivor', 'humanFemaleA', 'Kneel', { x: t.pos.x + 0.4, y: t.pos.y + 0.4 }, 2.4, false);
+          if (t.escort) person(id, t.escort.skin, 'Kneel', { x: t.pos.x + 0.4, y: t.pos.y + 0.4 }, 2.4, { leaves: true, scale: t.escort.scale });
+          itemAt = null;
           break;
-        case 'shelter': { // the church: stone door frame, a warm lit doorway, a white cross above
+        case 'church': // stone door frame, a warm lit doorway, a white cross above
           b.box(x - 1.2, gy + 1.6, z, 0.5, 3.2, 0.5, 0x8a8478, 0x9a9488).box(x + 1.2, gy + 1.6, z, 0.5, 3.2, 0.5, 0x8a8478, 0x9a9488);
           b.box(x, gy + 3.4, z, 3.0, 0.5, 0.6, 0x8a8478, 0x9a9488);
-          add('shelter', basic(new MeshBuilder().box(0, 1.4, 0, 1.9, 2.8, 0.05, 0xffc070)), x, z - 0.05, 0, false, { scenery: true });
-          add('shelter', basic(new MeshBuilder().box(0, 4.3, 0, 0.18, 1.1, 0.12, 0xf4f0e6).box(0, 4.5, 0, 0.7, 0.18, 0.12, 0xf4f0e6)), x, z, 0, false, { scenery: true });
+          add(id, basic(new MeshBuilder().box(0, 1.4, 0, 1.9, 2.8, 0.05, 0xffc070)), x, z - 0.05, 0, false, { scenery: true });
+          add(id, basic(new MeshBuilder().box(0, 4.3, 0, 0.18, 1.1, 0.12, 0xf4f0e6).box(0, 4.5, 0, 0.7, 0.18, 0.12, 0xf4f0e6)), x, z, 0, false, { scenery: true });
+          itemAt = null;
           break;
-        }
-        case 'fuel': add('fuel', storyItem('fuel'), x, z, 0.3); break;
-        case 'medkit': add('medkit', storyItem('medkit'), x, z, -0.4); break;
-        case 'rescue': person('rescue', 'humanFemaleA', 'Talk', { x, y: z }, -2.2, false); break;
+        case 'survivor-talk': person(id, 'humanFemaleA', 'Talk', { x, y: z }, -2.2, { leaves: true }); itemAt = null; break;
+        default: break; // jerrycans, medkit: just the thing itself
       }
+      if (def.item && itemAt) add(id, storyItem(def.item as StoryItem), itemAt.x, itemAt.z, itemAt.yaw ?? 0.4, false, itemAt.y !== undefined ? { y: itemAt.y } : {});
+      const piece = def.parts?.item as StoryItem | undefined;
+      if (piece) t.parts?.forEach((q, i) => add(id, storyItem(piece), q.x + 1.2, q.y + 1.2, i * 1.3, false, { part: i }));
     }
     if (b.triangles) out.add(new Mesh(b.build(), (this.city!.group.children[0] as Mesh).material as Material));
     return out;
@@ -476,7 +572,7 @@ export class GameView {
     else if (!caught && !car) {
       const hold = s.hold.taskId;
       const work = s.work;
-      if (hold && playerSpeed(s) < 0.6) this.player.play(KNEEL_TASKS.includes(hold) ? 'Kneel' : 'Interact', { fade: 0.25 });
+      if (hold && playerSpeed(s) < 0.6) this.player.play(KNEEL_SCENES.includes(stepDef(hold).scene) ? 'Kneel' : 'Interact', { fade: 0.25 });
       else if (work && playerSpeed(s) < 0.6) this.player.play(work.kind === 'refuel' ? 'Kneel' : work.kind === 'talk' ? 'Talk' : 'Interact', { fade: 0.25 });
       else if (s.phase === 'won') this.player.play('Idle', { fade: 0.3 });
       else this.player.locomote(playerSpeed(s));
@@ -624,10 +720,9 @@ export class GameView {
     }
     for (const e of this.extras) {
       const t = s.tasks.find((x) => x.id === e.task);
-      // the survivor locks herself in once helped; Nora comes out of hiding and follows you
-      e.actor.root.visible = !((e.task === 'rescue' || e.task === 'survivor') && t?.done);
-      const alive = e.task === 'rescue' || e.task === 'deliver' || e.task === 'survivor';
-      e.actor.update(e.actor.root.position.x, e.actor.root.position.z, Math.PI / 2 - e.actor.root.rotation.y, dt, alive);
+      // someone helped goes inside; someone found comes out of hiding and follows you
+      e.actor.root.visible = !(e.leaves && t?.done);
+      e.actor.update(e.actor.root.position.x, e.actor.root.position.z, Math.PI / 2 - e.actor.root.rotation.y, dt, e.alive);
     }
     this.updateNora(s, dt);
     this.shadows.count = shadowN;
@@ -643,10 +738,14 @@ export class GameView {
   private updateNora(s: GameState, dt: number): void {
     const e = s.escort;
     if (!e) { if (this.nora) this.nora.root.visible = false; return; }
-    if (!this.nora) {
-      this.nora = new Actor(this.assets, 'humanFemaleA');
+    const key = `${e.name}:${e.skin}:${e.scale}`;
+    if (!this.nora || this.noraKey !== key) { // whoever is following you this time
+      if (this.nora) { this.scene.remove(this.nora.root); this.nora.dispose(); }
+      this.nora = new Actor(this.assets, e.skin);
+      this.nora.root.scale.multiplyScalar(e.scale);
       this.nora.play('Idle', { fade: 0 });
       this.scene.add(this.nora.root);
+      this.noraKey = key;
     }
     const a = this.nora;
     a.root.visible = !e.riding;

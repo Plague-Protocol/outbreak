@@ -1,0 +1,665 @@
+{
+  "version": 1,
+  "story": {
+    "intro": {
+      "card": "DAY ONE",
+      "sub": "Port Halden",
+      "lines": [
+        "Narrator|Port Halden. Three days ago a virus came in on a cargo ship. Nobody gave it a name. The news just called it the fever.",
+        "Narrator|Then the fevered stopped being sick. They got up off the hospital floors and walked out into the city, hungry.",
+        "Emergency Radio|This is the emergency broadcast. The army is running one last evacuation tonight, from the far side of the city. Survivors, make your way there district by district. The subway tunnels between them are open for now, but the army is sealing them on a schedule.",
+        "Emergency Radio|The last helicopter leaves on schedule and it will not wait. If you need to defend yourself, the weapon stores have left their doors open. Halden Arms is one.",
+        "Sam|One district at a time. Find the way through, get across, and get on that helicopter. Don't stop moving."
+      ]
+    },
+    "chapters": [
+      {
+        "card": "CHAPTER ONE",
+        "sub": "Where it started"
+      },
+      {
+        "card": "CHAPTER TWO",
+        "sub": "Across the tracks"
+      },
+      {
+        "card": "CHAPTER THREE",
+        "sub": "The last helicopter"
+      }
+    ],
+    "arrive": {
+      "other": [
+        "Sam|Out of the tunnel. New streets, same nightmare. Find the way through."
+      ],
+      "final": [
+        "Sam|Last stretch. I can hear rotors somewhere over the rooftops.",
+        "Emergency Radio|...final evacuation loading on schedule. Anyone still out there, this is your last chance..."
+      ]
+    },
+    "tier": [
+      [],
+      [
+        "Emergency Radio|Reports from downtown. They are coming out of the buildings now, hundreds of them. And some of them are running."
+      ],
+      [
+        "Emergency Radio|The helicopter is on the pad and loading. If you are still out there... run. Don't stop for anything."
+      ]
+    ],
+    "endings": {
+      "won": {
+        "title": "EVACUATED",
+        "text": "Hands haul you up the ramp and the helicopter lifts before the door is shut. A medic checks your arms, then your eyes, then hands you water. Below, Port Halden goes dark street by street. Tonight, you are alive."
+      },
+      "caught": {
+        "title": "TAKEN",
+        "text": "Hands from behind, then teeth. The street lights blur. Somewhere far away, the emergency broadcast is still reading out the evacuation schedule."
+      },
+      "time": {
+        "title": "LEFT BEHIND",
+        "text": "You hear the rotors before you reach the corner, then the lights climb away over the harbour. The street behind you starts to move."
+      },
+      "sealed": {
+        "title": "SEALED IN",
+        "text": "Somewhere under the street a siren winds down, and the subway shutters slam, one station after another. The army has sealed the tunnels. The way across is gone, and the dark around you starts to move."
+      }
+    }
+  },
+  "map": {
+    "id": "map",
+    "kind": "hold",
+    "verb": "TAKE MAP",
+    "effect": "reveal-exit",
+    "scene": "map-crate",
+    "item": "map",
+    "objective": "Find the district map in the abandoned police car",
+    "short": "the map",
+    "brief": [
+      "Emergency Radio|Police cruisers carried district maps with the open tunnels marked. Find one and you'll know the way out of here."
+    ],
+    "done": [
+      "Sam|The map. One subway entrance is marked \"OPEN\". That's my way into the next district."
+    ],
+    "final": {
+      "objective": "Find the evacuation map in the abandoned police car",
+      "brief": [
+        "Emergency Radio|Police cruisers carried evacuation maps. Find one and you will know where the helicopter is landing."
+      ],
+      "done": [
+        "Sam|Evac map, still on the dashboard. The landing zone is circled in red. I know where I'm going."
+      ]
+    }
+  },
+  "groups": [
+    [
+      {
+        "id": "key",
+        "kind": "hold",
+        "verb": "TAKE KEY",
+        "scene": "fallen-woman",
+        "item": "key",
+        "objective": "Take the gate key from the fallen medic",
+        "short": "the gate key",
+        "brief": [
+          "Emergency Radio|The way out is fenced. A medic went out for supplies with the gate key and never came back."
+        ],
+        "done": [
+          "Sam|Keys on a lanyard: \"SOUTH GATE\". I'm sorry. Thank you."
+        ]
+      }
+    ],
+    [
+      {
+        "id": "power",
+        "kind": "hold",
+        "verb": "START",
+        "scene": "generator",
+        "objective": "Restart the street generator",
+        "short": "the generator",
+        "brief": [
+          "Emergency Radio|The floodlights and the gate run on a street generator, and the grid is down. Somebody has to start it by hand."
+        ],
+        "done": [
+          "Sam|Come on, come on... it catches. Lights all down the street. Every one of them heard that."
+        ]
+      },
+      {
+        "id": "gate",
+        "kind": "hold",
+        "verb": "OPEN",
+        "scene": "gate",
+        "objective": "Open the security gate",
+        "short": "the gate",
+        "brief": [
+          "Sam|Power's on. Now the gate."
+        ],
+        "done": [
+          "Sam|The gate rolls back. Loud. Too loud. Move."
+        ]
+      }
+    ],
+    [
+      {
+        "id": "keycard",
+        "kind": "hold",
+        "verb": "TAKE CARD",
+        "scene": "fallen-soldier",
+        "item": "keycard",
+        "objective": "Take the keycard from the fallen soldier",
+        "short": "the keycard",
+        "brief": [
+          "Emergency Radio|The checkpoint only opens to a military keycard. The patrol that held this street did not make it."
+        ],
+        "done": [
+          "Sam|He didn't make it to the checkpoint. His keycard will."
+        ]
+      }
+    ],
+    [
+      {
+        "id": "radio",
+        "kind": "hold",
+        "verb": "TUNE IN",
+        "scene": "radio-shop",
+        "objective": "Get the evac frequency from the radio in the shop",
+        "short": "the radio",
+        "brief": [
+          "Emergency Radio|...the helicopter only lands for people who call in first. The frequency is on a card by the counter in the corner shop..."
+        ],
+        "done": [
+          "Sam|Evac, this is Sam. I'm on my way. Please, hold that seat.",
+          "Evac|Copy, Sam. We see you on thermal. Move fast."
+        ]
+      }
+    ],
+    [
+      {
+        "id": "insulin",
+        "kind": "hold",
+        "verb": "TAKE",
+        "scene": "pharmacy",
+        "item": "insulin",
+        "objective": "Take the insulin from the pharmacy fridge",
+        "short": "the insulin",
+        "brief": [
+          "Emergency Radio|...a father on the north side, calling for anyone. His daughter is diabetic and they're trapped in a laundromat. The pharmacy two streets over had a fridge..."
+        ],
+        "done": [
+          "Sam|Two pens, still cold. The fridge must have run on a battery. Hang on, kid."
+        ]
+      },
+      {
+        "id": "deliver",
+        "kind": "hold",
+        "verb": "GIVE",
+        "scene": "laundromat",
+        "objective": "Bring the insulin to the girl in the laundromat",
+        "short": "the girl",
+        "brief": [
+          "Sam|The laundromat. Get it to her before it warms up."
+        ],
+        "done": [
+          "Joel|You came. You actually came. Here, sweetheart, here...",
+          "Joel|Listen: the main road is swarming. Keep to the side streets. God bless you."
+        ]
+      }
+    ],
+    [
+      {
+        "id": "fuses",
+        "kind": "collect",
+        "verb": "FIT FUSES",
+        "scene": "fuse-box",
+        "parts": {
+          "count": 3,
+          "item": "fuse",
+          "name": "fuse",
+          "objective": "Find the fuses for the shutter box ({got}/{of})",
+          "fit": "Fit the fuses in the shutter box",
+          "ready": "Sam|That's all of them. Now the fuse box."
+        },
+        "objective": "Find the three fuses for the shutter box",
+        "short": "the fuses",
+        "brief": [
+          "Emergency Radio|The tunnel shutters run off a street fuse box, and it's been stripped. Maintenance crews left spares in their vans around the block. You'll need three."
+        ],
+        "done": [
+          "Sam|Click. Click. Click. Something hums inside the wall. That's one door that'll open for me."
+        ]
+      }
+    ],
+    [
+      {
+        "id": "flare",
+        "kind": "hold",
+        "verb": "LIGHT",
+        "effect": "lure",
+        "scene": "flare",
+        "item": "flare",
+        "objective": "Light the signal flare at the crossroads",
+        "short": "the flare",
+        "brief": [
+          "Emergency Radio|Rescue flights are spotting by flare tonight. Light one where they can see it from the air, then get clear. Everything nearby will go to the light."
+        ],
+        "done": [
+          "Sam|Red light on every wall. They're turning toward it. Not toward me. Go, now."
+        ]
+      }
+    ],
+    [
+      {
+        "id": "barricade",
+        "kind": "hold",
+        "verb": "BREAK",
+        "seconds": 3.5,
+        "effect": "horde",
+        "scene": "barricade",
+        "objective": "Break through the barricade",
+        "short": "the barricade",
+        "brief": [
+          "Sam|Somebody barricaded the street: cars, doors, a fridge. The only way through. It'll take a while, and it'll be loud."
+        ],
+        "done": [
+          "Sam|It's down. And everything for three blocks heard it. Move!"
+        ]
+      }
+    ],
+    [
+      {
+        "id": "survivor",
+        "kind": "hold",
+        "verb": "TALK",
+        "effect": "escort-start",
+        "scene": "crashed-bus",
+        "escort": {
+          "name": "Nora",
+          "skin": "humanFemaleA",
+          "behind": "Sam|Where's Nora? I can't leave her out here. Wait for her."
+        },
+        "objective": "Find Nora, hiding in the crashed bus",
+        "short": "Nora",
+        "brief": [
+          "Emergency Radio|...this is Nora, I'm a nurse, I'm in the crashed bus on the avenue... I can't get out on my own. Please."
+        ],
+        "done": [
+          "Nora|You heard me? Okay. Okay. I'll stay right behind you. Don't go too fast."
+        ]
+      },
+      {
+        "id": "shelter",
+        "kind": "hold",
+        "verb": "GO IN",
+        "effect": "escort-end",
+        "needsEscort": true,
+        "scene": "church",
+        "objective": "Get Nora to the church shelter (she follows you)",
+        "short": "the shelter",
+        "brief": [
+          "Sam|There's a shelter in the church, lights on, doors barred. Keep her close and get her there."
+        ],
+        "done": [
+          "Nora|We made it. They have medics in here, and a radio. Thank you. Go, find your tunnel."
+        ]
+      }
+    ],
+    [
+      {
+        "id": "mast",
+        "kind": "collect",
+        "verb": "FIT",
+        "seconds": 2,
+        "scene": "radio-mast",
+        "parts": {
+          "count": 3,
+          "item": "battery",
+          "name": "battery",
+          "objective": "Take car batteries for the radio mast ({got}/{of})",
+          "fit": "Wire the batteries into the radio mast",
+          "ready": "Sam|Three batteries. Heavy. Now the mast."
+        },
+        "objective": "Power the radio mast with car batteries",
+        "short": "the radio mast",
+        "brief": [
+          "Emergency Radio|...repeater mast on this block is dead. Without it nobody south of here hears the evac schedule. Car batteries will run it for a night. It needs three."
+        ],
+        "done": [
+          "Sam|Lights on the mast. Somewhere, a hundred radios just crackled back to life.",
+          "Emergency Radio|...repeater back online. Whoever did that: thank you."
+        ]
+      }
+    ],
+    [
+      {
+        "id": "transit",
+        "kind": "puzzle",
+        "puzzle": "tiles",
+        "verb": "PIECE IT",
+        "scene": "office-desk",
+        "parts": {
+          "count": 4,
+          "item": "map-piece",
+          "name": "map piece",
+          "objective": "Find the pieces of the torn transit map ({got}/{of})",
+          "fit": "Put the transit map back together on the desk",
+          "ready": "Sam|That's every piece. There's a desk in the station office. Let's see it whole."
+        },
+        "objective": "Find the pieces of the torn transit map",
+        "short": "the transit map",
+        "brief": [
+          "Sam|A transit map, torn up and blown along the street. The tunnel lines are on it. I need all of it."
+        ],
+        "done": [
+          "Sam|There. The Green Line still runs under the river. If the tunnels are anywhere, they're on this."
+        ]
+      }
+    ],
+    [
+      {
+        "id": "guard-note",
+        "kind": "hold",
+        "verb": "SEARCH",
+        "scene": "fallen-guard",
+        "item": "note",
+        "objective": "Search the fallen security guard",
+        "short": "the guard",
+        "brief": [
+          "Emergency Radio|The depot's security door takes a code. The night guard never made it home. He'll have it on him."
+        ],
+        "done": [
+          "Sam|A note in his breast pocket, in pencil: DOOR {code}. Sorry, friend."
+        ]
+      },
+      {
+        "id": "keypad",
+        "kind": "puzzle",
+        "puzzle": "keypad",
+        "verb": "ENTER CODE",
+        "scene": "security-door",
+        "objective": "Enter the code at the depot's security door",
+        "short": "the security door",
+        "brief": [
+          "Sam|Now the door. {code}. Don't fumble it."
+        ],
+        "done": [
+          "Sam|Green light. The bolts slide back. In."
+        ]
+      }
+    ],
+    [
+      {
+        "id": "rewire",
+        "kind": "puzzle",
+        "puzzle": "wires",
+        "verb": "REWIRE",
+        "scene": "junction-box",
+        "objective": "Reconnect the cut wires in the junction box",
+        "short": "the junction box",
+        "brief": [
+          "Emergency Radio|Looters cut the street lighting at the junction box. Match the wires and the lights on that block come back. They hate the light."
+        ],
+        "done": [
+          "Sam|Every wire to its colour. The street lights stutter and catch. That'll keep a few of them back."
+        ]
+      }
+    ],
+    [
+      {
+        "id": "antibiotics",
+        "kind": "hold",
+        "verb": "TAKE",
+        "scene": "ambulance",
+        "item": "antibiotics",
+        "objective": "Take the antibiotics from the abandoned ambulance",
+        "short": "the antibiotics",
+        "brief": [
+          "Emergency Radio|...field medic at the overpass, soldier with an infected wound, she needs antibiotics. The ambulance on the high street was abandoned with its doors open..."
+        ],
+        "done": [
+          "Sam|A full case, never opened. Okay, the medic."
+        ]
+      },
+      {
+        "id": "medic",
+        "kind": "hold",
+        "verb": "GIVE",
+        "scene": "field-medic",
+        "objective": "Bring the antibiotics to the field medic",
+        "short": "the medic",
+        "brief": [
+          "Sam|The medic. He doesn't have long."
+        ],
+        "done": [
+          "Ama|That's them. That's exactly them. You might have just saved his life.",
+          "Ama|Go. And stay off the high street, it's all runners now."
+        ]
+      }
+    ],
+    [
+      {
+        "id": "lost-boy",
+        "kind": "hold",
+        "verb": "TALK",
+        "effect": "escort-start",
+        "scene": "phone-booth",
+        "escort": {
+          "name": "Leo",
+          "skin": "humanMaleA",
+          "scale": 0.68,
+          "behind": "Sam|Where did Leo go? Leo! Stay with me."
+        },
+        "objective": "Find the boy hiding in the phone booth",
+        "short": "the boy",
+        "brief": [
+          "Emergency Radio|...a woman at the bakery, her son ran when it started, she thinks he's hiding somewhere on the square. His name is Leo..."
+        ],
+        "done": [
+          "Leo|Are you a policeman? Mum said to hide and not come out for anyone.",
+          "Sam|Your mum sent me, Leo. Hold onto my jacket. We're going to her."
+        ]
+      },
+      {
+        "id": "mother",
+        "kind": "hold",
+        "verb": "REUNITE",
+        "effect": "escort-end",
+        "needsEscort": true,
+        "scene": "mother",
+        "objective": "Bring Leo to his mother at the bakery (he follows you)",
+        "short": "Leo's mother",
+        "brief": [
+          "Sam|The bakery. Keep him close."
+        ],
+        "done": [
+          "Rosa|Leo! Oh, Leo... thank you. Thank you. Take this, it's all the bread we have left.",
+          "Sam|Lock the door behind you."
+        ]
+      }
+    ],
+    [
+      {
+        "id": "dock",
+        "kind": "clear",
+        "clear": 5,
+        "verb": "FIGHT",
+        "scene": "loading-dock",
+        "objective": "Clear the infected from the loading dock",
+        "short": "the loading dock",
+        "brief": [
+          "Emergency Radio|The shortcut to the tunnels runs through the depot's loading dock. There's a pack of them in there. Clear it, or go the long way round."
+        ],
+        "done": [
+          "Sam|That's the last of them. Breathe. Keep moving."
+        ]
+      }
+    ],
+    [
+      {
+        "id": "bait",
+        "kind": "hold",
+        "verb": "TAKE",
+        "scene": "butcher",
+        "item": "bait",
+        "objective": "Take the meat from the butcher's cold room",
+        "short": "the meat",
+        "brief": [
+          "Sam|The crossroads ahead is thick with them. They go for anything that smells of blood. The butcher's cold room..."
+        ],
+        "done": [
+          "Sam|Turned, but they'll still want it. Now the crossroads. Fast."
+        ]
+      },
+      {
+        "id": "drop-bait",
+        "kind": "hold",
+        "verb": "DROP",
+        "effect": "lure",
+        "scene": "crossroads",
+        "item": "bait",
+        "objective": "Drop the bait in the middle of the crossroads",
+        "short": "the crossroads",
+        "brief": [
+          "Sam|Drop it where they'll all find it, and get clear."
+        ],
+        "done": [
+          "Sam|There. Dinner. Every head on the street just turned. Not to me."
+        ]
+      }
+    ],
+    [
+      {
+        "id": "cutters",
+        "kind": "hold",
+        "verb": "TAKE",
+        "scene": "hardware-van",
+        "item": "cutters",
+        "objective": "Take the bolt cutters from the hardware van",
+        "short": "the bolt cutters",
+        "brief": [
+          "Sam|The alley to the tunnel is chained shut. There's a hardware van on the corner. Bolt cutters, please, bolt cutters..."
+        ],
+        "done": [
+          "Sam|Bolt cutters. Somebody's lucky day. Mine."
+        ]
+      },
+      {
+        "id": "chain",
+        "kind": "hold",
+        "verb": "CUT",
+        "seconds": 2.5,
+        "scene": "chained-gate",
+        "objective": "Cut the chain on the alley gate",
+        "short": "the chain",
+        "brief": [
+          "Sam|The gate. Lean on them."
+        ],
+        "done": [
+          "Sam|Snap. It swings open. Quietly, quietly..."
+        ]
+      }
+    ],
+    [
+      {
+        "id": "water",
+        "kind": "collect",
+        "verb": "HAND OVER",
+        "scene": "shelter-door",
+        "parts": {
+          "count": 3,
+          "item": "water",
+          "name": "water jug",
+          "objective": "Find water jugs for the shelter ({got}/{of})",
+          "fit": "Bring the water to the shelter door",
+          "ready": "Sam|Three jugs. My arms are going to fall off. The shelter."
+        },
+        "objective": "Find water for the people in the shelter",
+        "short": "the water",
+        "brief": [
+          "Emergency Radio|...forty people in the school shelter and the taps are dry. There's bottled water in the corner shops if anyone can carry it..."
+        ],
+        "done": [
+          "Grace|Water! Oh, bless you. The children haven't had any since this morning.",
+          "Grace|The army trucks went east, toward the tunnels. That's all we know."
+        ]
+      }
+    ],
+    [
+      {
+        "id": "phone",
+        "kind": "puzzle",
+        "puzzle": "keypad",
+        "verb": "DIAL",
+        "scene": "phone-booth",
+        "objective": "Call the evac line from the phone booth: {code}",
+        "short": "the evac line",
+        "brief": [
+          "Emergency Radio|Landlines are still up in places. Survivors, call the evac line and register: {code}. Repeat: {code}."
+        ],
+        "done": [
+          "Evac|Evac line. Name? ...Sam. Got you. You're on the list. Keep heading east."
+        ]
+      }
+    ],
+    [
+      {
+        "id": "gas-main",
+        "kind": "hold",
+        "verb": "SHUT OFF",
+        "seconds": 3,
+        "scene": "gas-valve",
+        "objective": "Shut off the gas main before the fire reaches it",
+        "short": "the gas main",
+        "brief": [
+          "Emergency Radio|Fire spreading on the east side. If it reaches the gas main on the square, the whole block goes up, and the tunnel with it. Somebody has to close the valve."
+        ],
+        "done": [
+          "Sam|Stiff... stiff... there. Closed. Nobody will ever know. That's fine."
+        ]
+      }
+    ]
+  ],
+  "optional": [
+    {
+      "id": "fuel",
+      "kind": "hold",
+      "verb": "SIPHON",
+      "scene": "jerrycans",
+      "item": "fuel",
+      "timeCost": 12,
+      "reward": "speed",
+      "objective": "Optional: siphon fuel from the wrecks (costs time)",
+      "short": "fuel",
+      "brief": [],
+      "done": [
+        "Sam|A jerrycan of petrol and an energy bar from the glovebox. My legs feel lighter."
+      ]
+    },
+    {
+      "id": "medkit",
+      "kind": "hold",
+      "verb": "GATHER",
+      "scene": "medkit",
+      "item": "medkit",
+      "timeCost": 10,
+      "reward": "calm",
+      "objective": "Optional: gather medical supplies (costs time)",
+      "short": "medical supplies",
+      "brief": [],
+      "done": [
+        "Sam|Bandages, painkillers, and ammonia. They hate the smell. They'll come slower now."
+      ]
+    },
+    {
+      "id": "rescue",
+      "kind": "hold",
+      "verb": "HELP",
+      "scene": "survivor-talk",
+      "timeCost": 15,
+      "reward": "funds",
+      "objective": "Optional: help the survivor hiding in the shop (costs time)",
+      "short": "the survivor",
+      "brief": [],
+      "done": [
+        "Ana|You came back for me? Thank you. Go, go. I'll lock myself in until morning.",
+        "Sam|Ana pressed her savings into my hand. \"Buy something that shoots.\""
+      ]
+    }
+  ]
+}

@@ -183,6 +183,45 @@
     padding: 10px 0 calc(env(safe-area-inset-bottom, 0px) + 12px); border-top: 1px solid rgba(255,255,255,.1); }
   #store-hand { font-size: 13px; opacity: .8; }
   #store .close { padding: 11px 22px; border: 1px solid #aaa; background: none; color: #ddd; border-radius: 6px; font-size: 14px; }
+  /* puzzle pages: a torn map, a keypad, cut wires (the page itself is built by src/ui/puzzle.ts) */
+  #puzzle { z-index: 9; background: radial-gradient(ellipse at top, #1c2430 0%, #0a0c10 75%); gap: 8px; justify-content: center;
+    padding: calc(env(safe-area-inset-top, 0px) + 10px) 12px calc(env(safe-area-inset-bottom, 0px) + 10px); }
+  #puzzle header small { display: block; font-size: 10px; letter-spacing: .3em; color: #7fb4ff; text-transform: uppercase; }
+  #puzzle h1 { margin: 2px 0 0; font-size: 20px; letter-spacing: .12em; }
+  #puzzle .help { margin: 0; font-size: 13px; opacity: .8; max-width: 420px; }
+  #puzzle .body { display: grid; gap: 4px; }
+  #puzzle .body.tiles { grid-template-columns: repeat(3, min(24vw, 24vh, 110px)); }
+  #puzzle .tile { width: min(24vw, 24vh, 110px); aspect-ratio: 1; border: none; border-radius: 3px; padding: 0;
+    background-size: 300% 300%; transition: transform .15s; box-shadow: 0 2px 6px rgba(0,0,0,.6); }
+  #puzzle .body.keypad { grid-template-columns: auto; justify-items: center; gap: 8px; }
+  #puzzle .readout { font: 700 30px ui-monospace, monospace; letter-spacing: .4em; color: #9ef0a8; background: #0b120d;
+    border: 1px solid #2c4a33; border-radius: 6px; padding: 4px 6px 4px 18px; min-width: 150px; text-align: center; }
+  #puzzle .keys { display: grid; grid-template-columns: repeat(3, 58px); gap: 6px; }
+  #puzzle .keys button { height: 44px; border-radius: 6px; border: 1px solid #3a4250; background: #1a1f28; color: #eee;
+    font-size: 18px; font-weight: 700; }
+  #puzzle .body.wires { grid-template-columns: auto 90px auto; align-items: center; }
+  #puzzle .col { display: flex; flex-direction: column; gap: 10px; }
+  #puzzle .wire { width: 74px; height: 30px; border-radius: 15px; border: 2px solid rgba(255,255,255,.25); background: var(--c);
+    box-shadow: 0 0 0 0 var(--c); transition: box-shadow .15s, opacity .2s; }
+  #puzzle .wire.picked { box-shadow: 0 0 0 4px rgba(255,255,255,.7); }
+  #puzzle .wire.done { opacity: .35; }
+  #puzzle .gap { height: 100%; border-left: 2px dashed rgba(255,255,255,.15); justify-self: center; }
+  #puzzle .wrong { animation: shake .35s; }
+  @keyframes shake { 20%, 60% { transform: translateX(-8px); } 40%, 80% { transform: translateX(8px); } }
+  #puzzle.solved .body { outline: 3px solid #9ef0a8; outline-offset: 6px; border-radius: 6px; }
+  #puzzle footer .close { padding: 8px 20px; border: 1px solid #889; background: none; color: #ccd; border-radius: 6px; font-size: 13px; }
+  #puzzle.on { display: flex; }
+  @media (max-height: 500px) { /* a phone on its side: words on the left, the puzzle on the right */
+    #puzzle.on { display: grid; grid-template-columns: minmax(170px, 32%) auto; grid-template-rows: auto auto 1fr;
+      column-gap: 30px; row-gap: 8px; justify-content: center; align-content: center; text-align: left;
+      padding-left: max(14px, env(safe-area-inset-left, 0px)); padding-right: max(14px, env(safe-area-inset-right, 0px)); }
+    #puzzle header { grid-column: 1; grid-row: 1; } #puzzle .help { grid-column: 1; grid-row: 2; }
+    #puzzle footer { grid-column: 1; grid-row: 3; align-self: start; } #puzzle .body { grid-column: 2; grid-row: 1 / 4; }
+    #puzzle .body.keypad { grid-template-columns: auto auto; align-items: center; column-gap: 18px; }
+    #puzzle .keys { grid-template-columns: repeat(3, 52px); gap: 5px; }
+    #puzzle .keys button { height: 38px; }
+    #puzzle .readout { font-size: 24px; }
+  }
   /* the full map */
   #map-screen { background: rgba(4,6,9,.94); z-index: 9; padding: 0; touch-action: none; }
   #fullmap { position: absolute; inset: 0; width: 100%; height: 100%; }

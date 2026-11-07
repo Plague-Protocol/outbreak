@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import { createGame, currentTask, interactionFor, requiredDone, step, taskTarget, withVehiclesBlocked, type GameState } from '../src/core/state';
+import { createGame, currentTask, interactionFor, requiredDone, solvePuzzle, step, taskTarget, withVehiclesBlocked, type GameState } from '../src/core/state';
+import { answerFor } from './helpers';
 import { cellOf, distanceField } from '../src/core/map';
 import { CHAPTERS } from '../src/core/config';
 import type { Input, Vec2 } from '../src/core/types';
@@ -11,7 +12,12 @@ export function botInput(g: GameState, field: { target: Vec2 | null; f: Int16Arr
   const t = currentTask(g);
   const target = requiredDone(g) || !t ? g.safehouse : taskTarget(g, t);
   const it = interactionFor(g);
-  if (it?.kind === 'task' && t && it.taskId === t.id) return { dx: 0, dy: 0, action: true };
+  if (it?.kind === 'task' && t && it.taskId === t.id) {
+    if (t.kind === 'puzzle') { solvePuzzle(g, t.id, answerFor(t)); return { dx: 0, dy: 0 }; } // (the page is instant for a bot)
+    return { dx: 0, dy: 0, action: true };
+  }
+  // a clear step: stand your ground at it and shoot (aim assist picks them)
+  if (t?.kind === 'clear' && t.targets && Math.hypot(t.pos.x - g.player.pos.x, t.pos.y - g.player.pos.y) < 4) return { dx: 0, dy: 0, fire: true };
   if (g.hold.taskId) return { dx: 0, dy: 0 };
   if (!field.target || field.target.x !== target.x || field.target.y !== target.y) { field.target = target; field.f = withVehiclesBlocked(g, () => distanceField(g.map, target)); }
   const f = field.f!;

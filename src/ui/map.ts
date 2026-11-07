@@ -1,4 +1,5 @@
 import { currentTask, finalChapter, isRevealed, requiredDone, type GameState } from '../core/state';
+import { stepDef } from '../core/content';
 import { CITY_NAME } from '../core/map';
 import { shortName } from '../core/story';
 import type { MapData, Vec2 } from '../core/types';
@@ -55,12 +56,13 @@ function markers(s: GameState): Marker[] {
   const cur = currentTask(s);
   for (const t of s.tasks) {
     if (t.done || !isRevealed(s, t)) continue; // later steps stay hidden until they come up
-    t.parts?.forEach((q, i) => { if (!t.got![i]) out.push({ pos: q, color: '#f2b630', size: 4, shape: 'dot', label: 'fuse' }); });
-    out.push({ pos: t.pos, color: t.required ? '#f2b630' : '#3f9be6', size: t === cur ? 7 : 5, shape: 'ring', label: t === cur ? shortName(t.id) : undefined });
+    const piece = stepDef(t.id).parts?.name;
+    t.parts?.forEach((q, i) => { if (!t.got![i]) out.push({ pos: q, color: '#f2b630', size: 4, shape: 'dot', label: piece }); });
+    out.push({ pos: t.pos, color: t.required ? '#f2b630' : '#3f9be6', size: t === cur ? 7 : 5, shape: 'ring', label: t === cur ? shortName(t) : undefined });
   }
   if (s.safehouseKnown) out.push({ pos: s.safehouse, color: requiredDone(s) ? '#3ddc84' : '#d9534f', size: 8, shape: 'ring', label: finalChapter(s) ? 'Evac' : 'Subway' });
-  if (s.escort) out.push({ pos: s.escort.pos, color: '#7fe08a', size: 4.5, shape: 'dot', label: 'Nora' });
-  if (s.flare) out.push({ pos: s.flare.pos, color: '#ff4030', size: 5, shape: 'dot', label: 'flare' });
+  if (s.escort) out.push({ pos: s.escort.pos, color: '#7fe08a', size: 4.5, shape: 'dot', label: s.escort.name });
+  if (s.flare) out.push({ pos: s.flare.pos, color: '#ff4030', size: 5, shape: 'dot', label: 'lure' });
   for (const st of s.stores) out.push({ pos: st.pos, color: '#ff4b4b', size: 6, shape: 'cash', label: 'Weapons' });
   for (const v of s.survivors) {
     if (v.status === 'done') continue;

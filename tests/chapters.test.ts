@@ -1,9 +1,12 @@
 import { describe, expect, it } from 'vitest';
+import { doTask } from './helpers';
+import { answerFor } from './helpers';
+import { content, stepText, validate, type Content } from '../src/core/content';
 import {
-  buy, chapterBonus, chapterSeed, createGame, currentTask, finalChapter, hurtPlayer, interactionFor, isRevealed, nextChapter,
+  buy, chapterBonus, clearLeft, solvePuzzle, chapterSeed, createGame, currentTask, finalChapter, hurtPlayer, interactionFor, isRevealed, nextChapter,
   priceOf, restartChapter, step, type GameState,
 } from '../src/core/state';
-import { CHAPTER_HEAL, CHAPTERS, GEAR, PLAYER_HEALTH, TASK_HOLD_SECONDS } from '../src/core/config';
+import { CHAPTER_HEAL, CHAPTERS, GEAR, PLAYER_HEALTH } from '../src/core/config';
 import type { Input, Task } from '../src/core/types';
 
 const IDLE: Input = { dx: 0, dy: 0 };
@@ -15,16 +18,6 @@ function calm(g: GameState): GameState {
   return g;
 }
 
-function doTask(g: GameState, t: Task): void {
-  // pieces first (the fuses); anyone you are bringing along stays with you
-  t.parts?.forEach((q, i) => { if (!t.got![i]) { g.player.pos = { ...q }; step(g, IDLE, DT); } });
-  g.player.pos = { ...t.pos };
-  g.player.vel = { x: 0, y: 0 };
-  if (g.escort) g.escort.pos = { x: t.pos.x + 1, y: t.pos.y };
-  step(g, USE, DT);
-  const hold = t.seconds ?? TASK_HOLD_SECONDS;
-  for (let i = 0; i < Math.ceil(hold / DT) + 2 && !t.done && g.phase === 'playing'; i++) step(g, IDLE, DT);
-}
 
 /** Do the steps before this one. */
 function upTo(g: GameState, id: string): void {
@@ -276,5 +269,85 @@ describe('different steps every chapter', () => {
     const before = b.zombies.length;
     doTask(b, currentTask(b)!);
     expect(b.zombies.length).toBeGreaterThan(before);
+  });
+});
+
+describe('task content and its mechanics', () => {
+  /** A chapter-0 game whose steps include this one, played up to it. */
+  function at(id: string): GameState {
+    for (let night = 1; night < 600; night++) {
+      const g = createGame(night);
+      if (!g.tasks.some((t) => t.id === id)) continue;
+      calm(g);
+      for (let k = 0; k < 10 && currentTask(g) && currentTask(g)!.id !== id; k++) doTask(g, currentTask(g)!);
+      return g;
+    }
+    throw new Error(`no night with ${id}`);
+  }
+
+  it('the content file checks out, and broken content is refused', () => {
+    expect(validate(content())).toEqual([]);
+    expect(content().groups.length).toBeGreaterThanOrEqual(20);
+    const broken = JSON.parse(JSON.stringify(content())) as Content;
+    broken.groups[0]![0]!.kind = 'dance' as never;
+    broken.groups[1]![0]!.done = ['no speaker here'];
+    expect(validate(broken).length).toBe(2);
+  });
+
+  it('a keypad opens on the right code only', () => {
+    const g = at('keypad');
+    const t = currentTask(g)!;
+    expect(t.code).toMatch(/^\d{4}$/);
+    expect(stepText('guard-note', false, { code: t.code }).done.join(' ')).toContain(t.code); // the note had it
+    g.player.pos = { ...t.pos };
+    step(g, USE, DT);
+    expect(g.events).toContainEqual({ type: 'puzzle-open', id: 'keypad' });
+    expect(solvePuzzle(g, 'keypad', '0000' === t.code ? '1111' : '0000')).toBe(false);
+    expect(t.done).toBe(false);
+    expect(solvePuzzle(g, 'keypad', t.code)).toBe(true);
+    expect(t.done).toBe(true);
+  });
+
+  it('the torn map: every piece first, then every tile turned the right way up', () => {
+    const g = at('transit');
+    const t = currentTask(g)!;
+    expect(t.parts!.length).toBe(4);
+    g.player.pos = { ...t.pos };
+    expect(interactionFor(g)?.kind).not.toBe('task');
+    expect(solvePuzzle(g, 'transit', answerFor(t))).toBe(true); // the page itself only opens at the desk...
+    const h = at('transit');
+    const u = currentTask(h)!;
+    const wrong = u.scramble!.map(() => 0);
+    expect(solvePuzzle(h, 'transit', wrong)).toBe(false);
+  });
+
+  it('the wires: each to its own colour', () => {
+    const g = at('rewire');
+    const t = currentTask(g)!;
+    expect(solvePuzzle(g, 'rewire', [0, 1, 2, 3].map((i) => (i + 1) % 4))).toBe(false);
+    expect(solvePuzzle(g, 'rewire', answerFor(t))).toBe(true);
+  });
+
+  it('a clear step: they come when you get close, and it is done when they are down', () => {
+    const g = at('dock');
+    const t = currentTask(g)!;
+    expect(interactionFor(g)?.kind).not.toBe('task');
+    g.player.pos = { x: t.pos.x + 2, y: t.pos.y };
+    step(g, IDLE, DT);
+    expect(t.targets!.length).toBe(5);
+    expect(clearLeft(g, t)).toBe(5);
+    for (const z of g.zombies) if (t.targets!.includes(z.id)) { z.health = 0; z.action = 'dead'; z.actionT = 1; }
+    step(g, IDLE, DT);
+    expect(t.done).toBe(true);
+  });
+
+  it('Leo is small, follows you, and his mother only counts once he is with you', () => {
+    const g = at('lost-boy');
+    doTask(g, currentTask(g)!);
+    expect(g.escort?.name).toBe('Leo');
+    expect(g.escort!.scale).toBeLessThan(1);
+    expect(currentTask(g)!.id).toBe('mother');
+    doTask(g, currentTask(g)!);
+    expect(g.escort).toBeNull();
   });
 });

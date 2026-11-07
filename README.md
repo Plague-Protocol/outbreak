@@ -76,15 +76,8 @@ pixel ratio, `?lights=0..6` number of real point lights, `?zoom=N` camera span.
 
 Told the way Eko Lockdown tells its story: a title card, a letterboxed intro, "Speaker|line"
 dialogue, radio briefs as each step comes up, radio calls as the night gets worse, and endings
-(EVACUATED, TAKEN, LEFT BEHIND). Each night deals its chapters different steps from a pool of nine kinds,
-never repeating one in a night, and each chapter ends with the map. The kinds play differently: take a
-gate key or keycard from the fallen, start a generator then open the gate, tune a radio, take insulin
-from a pharmacy and bring it to a trapped girl, find three fuses scattered around a block then fit
-them in the shutter box, light a signal flare (it draws them away while it burns), pull apart a
-barricade (slow and loud: a horde comes), or find Nora in a crashed bus and get her to the church
-shelter (she follows you, rides in your car, and has to be with you at the door). Optional detours
-cost time. Text lives in
-`src/core/story.ts`. Setting and names are invented so the game reads anywhere.
+(EVACUATED, TAKEN, LEFT BEHIND, SEALED IN). Each night deals its chapters different steps from the
+pool (21 kinds now), never repeating one in a night, and each chapter ends with the map. Setting and names are invented so the game reads anywhere.
 
 ## The city
 
@@ -117,6 +110,28 @@ Nothing is deployed until you choose to.
 - `src/input/`, `src/ui/` controls, HUD, dialogue, store, minimap and city map (plain DOM/canvas).
 - `src/seams/` empty interfaces for sign-in (`AuthSession`) and progress (`ProgressStore`).
 
+## Task content (data, not code)
+
+Every step lives in `public/content/tasks.json`, which the game fetches at start, along with the story
+around them (intro, chapter cards, radio calls, endings). The mechanics are code; a step is an entry
+that picks one and supplies everything else:
+
+- `kind`: `hold` (stand at it), `collect` (find `parts.count` pieces nearby, then fit them), `puzzle`
+  (a page: `tiles` to turn a torn map the right way up, a `keypad` code, `wires` to match), or `clear`
+  (the infected there come for you; done when they are down).
+- `effect` when done: `reveal-exit` (the map), `escort-start` / `escort-end` (someone follows you, and
+  must be with you at the door), `lure` (draws them to it for a while), `horde` (the noise brings a wave).
+- Words: `objective`, `short`, `verb` (the Use button), `brief` and `done` as `"Speaker|line"`, with
+  `{code}` filled in per night (door codes, phone numbers); `final` replaces the words in the last chapter.
+- Looks: `scene` (a preset in `src/render/view.ts`: a pharmacy, a phone booth, a crashed bus...) and
+  `item` (from the library in `src/render/props.ts`).
+
+A group is one or more steps done in order. `src/core/content.ts` checks a file before it is used
+(unknown kinds, missing lines, a line without a speaker, an escort that starts but never ends). New
+steps that reuse the mechanics, scenes and items need no code at all. The file carries a `version`,
+so a backend can serve it later and a replayed run can be checked against the same content. Puzzle
+answers are checked in the core (`solvePuzzle`), not on the page.
+
 ## Characters and animation
 
 Bodies and skins: Kenney "Animated Characters 3" (CC0). Animations: Quaternius "Universal
@@ -134,7 +149,7 @@ poses play on the upper body only, over whatever the legs are doing. Credits:
 | Triangles | <= 50,000 | ~34,500-41,700 (the debris of the abandoned city adds a few thousand) |
 | Real lights | small | hemisphere + moon + flashlight/headlights + fill + 3 pooled + muzzle flash |
 | Zombie characters drawn | 12 nearest | the rest are simulated or dormant, not drawn |
-| JS bundle (gzip) | <= 220 KB | 207.8 KB |
+| JS bundle (gzip) | <= 220 KB | 219.9 KB at start (puzzle pages, 1.9 KB, load when first needed; task content 6 KB of JSON) |
 | Character assets (gzip) | <= 450 KB | ~426 KB (GLB 282 KB + 4 skins 144 KB) |
 
 The worst case was measured at a store's door with 18 zombies around, on three nights; the

@@ -150,9 +150,7 @@ export const GEAR = {
 export const GEAR_PICKUPS = 1; // lying somewhere in each district
 
 // ---- the different kinds of step
-export const FUSE_COUNT = 3; // fuses to find before the fuse box
 export const ESCORT_SPEED = 5.0; // a frightened nurse keeps up, just
 export const ESCORT_NEAR = 5; // close enough to count as "with you"
 export const FLARE_SECONDS = 35; // a lit flare draws them this long
 export const FLARE_RADIUS = 26;
-export const BARRICADE_SECONDS = 3.5; // pulling a barricade apart takes a while, and is loud

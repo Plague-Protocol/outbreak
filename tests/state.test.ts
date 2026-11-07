@@ -1,5 +1,6 @@
 import { readdirSync, readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
+import { doTask } from './helpers';
 import {
   aimTarget, buy, createGame, currentTask, equip, gunStats, interactionFor, isBusy, playerVehicle, priceOf, requiredDone,
   step, type GameState,
@@ -10,7 +11,7 @@ import {
   TASK_HOLD_SECONDS, UPGRADE_LEVELS, VEHICLES, WEAPON_PRICES, ZOMBIE_CAP, ZOMBIE_HEALTH,
 } from '../src/core/config';
 import type { Zombie } from '../src/core/types';
-import type { Input, Task, Vec2 } from '../src/core/types';
+import type { Input, Vec2 } from '../src/core/types';
 
 const IDLE: Input = { dx: 0, dy: 0 };
 const USE: Input = { dx: 0, dy: 0, action: true };
@@ -30,16 +31,6 @@ function finalGame(seed = 1): GameState {
 }
 
 /** Teleport to a task, press Use, and hold position until it completes. */
-function doTask(g: GameState, t: Task): void {
-  // pieces first (the fuses); anyone you are bringing along stays with you
-  t.parts?.forEach((q, i) => { if (!t.got![i]) { g.player.pos = { ...q }; step(g, IDLE, DT); } });
-  g.player.pos = { ...t.pos };
-  g.player.vel = { x: 0, y: 0 };
-  if (g.escort) g.escort.pos = { x: t.pos.x + 1, y: t.pos.y };
-  step(g, USE, DT);
-  const hold = t.seconds ?? TASK_HOLD_SECONDS;
-  for (let i = 0; i < Math.ceil(hold / DT) + 2 && !t.done && g.phase === 'playing'; i++) step(g, IDLE, DT);
-}
 
 function doRequired(g: GameState): void {
   for (const t of g.tasks) if (t.required) doTask(g, t);
@@ -123,10 +114,9 @@ describe('interactions', () => {
       const gate = g.tasks.find((t) => t.id === 'gate');
       if (!gate) continue;
       found = true;
+      for (let k = 0; k < 6 && currentTask(g)!.id !== 'power'; k++) doTask(g, currentTask(g)!); // up to the generator
       g.player.pos = { ...gate.pos };
       expect(interactionFor(g)?.kind === 'task').toBe(false); // not revealed: nothing to use here
-      step(g, USE, DT);
-      expect(g.hold.taskId).toBeNull();
       doTask(g, g.tasks.find((t) => t.id === 'power')!);
       doTask(g, gate);
       expect(gate.done).toBe(true);

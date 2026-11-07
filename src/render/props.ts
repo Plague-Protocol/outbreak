@@ -291,7 +291,12 @@ export function pulseGlint(s: Object3D, time: number, phase: number): void {
 }
 
 /** The story items you take at an objective (keys, keycard, map, supplies). Base at y = 0. */
-export function storyItem(kind: 'key' | 'keycard' | 'map' | 'medkit' | 'fuel' | 'insulin' | 'fuse' | 'flare'): Group {
+/** The library of things a step can have you take (named by the task content). */
+export type StoryItem =
+  | 'key' | 'keycard' | 'map' | 'medkit' | 'fuel' | 'insulin' | 'fuse' | 'flare'
+  | 'battery' | 'map-piece' | 'note' | 'antibiotics' | 'cutters' | 'water' | 'bait';
+
+export function storyItem(kind: StoryItem): Group {
   const g = new Group();
   const b = new MeshBuilder();
   let glintH = 0.3;
@@ -335,6 +340,35 @@ export function storyItem(kind: 'key' | 'keycard' | 'map' | 'medkit' | 'fuel' | 
     case 'flare': // a road flare lying on the tarmac, cap off
       b.box(0, 0.04, 0, 0.42, 0.07, 0.07, 0xc8281e, 0xd8382a).box(0.23, 0.04, 0, 0.05, 0.075, 0.075, 0x2a2b2e);
       glintH = 0.45;
+      break;
+    case 'battery': // a car battery, terminals up
+      b.box(0, 0.18, 0, 0.5, 0.36, 0.3, 0x1f2124, 0x2a2c30).box(-0.15, 0.39, 0, 0.06, 0.05, 0.06, 0xc8282a).box(0.15, 0.39, 0, 0.06, 0.05, 0.06, 0x2a2b2e);
+      b.box(0, 0.25, 0.152, 0.3, 0.1, 0.005, 0xd8b030);
+      glintH = 0.7;
+      break;
+    case 'map-piece': // a torn corner of a transit map, blowing in the gutter
+      b.box(0, 0.01, 0, 0.42, 0.012, 0.32, 0xe9e2cf).box(-0.05, 0.018, 0.02, 0.32, 0.006, 0.05, 0x2f9a4a).box(0.08, 0.018, -0.06, 0.05, 0.006, 0.22, 0xd8402e);
+      glintH = 0.4;
+      break;
+    case 'note': // a folded note
+      b.box(0, 0.01, 0, 0.22, 0.015, 0.16, 0xf0ead8).box(0, 0.02, 0, 0.14, 0.004, 0.02, 0x404040);
+      glintH = 0.35;
+      break;
+    case 'antibiotics': // a white case with a green cross
+      b.box(0, 0.16, 0, 0.6, 0.32, 0.36, 0xf0f0ea, 0xf6f6f0).box(0, 0.325, 0, 0.26, 0.01, 0.07, 0x2f9a4a).box(0, 0.325, 0, 0.07, 0.01, 0.24, 0x2f9a4a);
+      glintH = 0.6;
+      break;
+    case 'cutters': // long-handled bolt cutters
+      b.box(0, 0.04, 0, 0.9, 0.05, 0.06, 0xc8282a).box(0.04, 0.04, 0.12, 0.85, 0.05, 0.06, 0xc8282a).box(-0.5, 0.05, 0.06, 0.2, 0.07, 0.12, 0x8a8d92);
+      glintH = 0.45;
+      break;
+    case 'water': // a five-litre water jug
+      b.box(0, 0.22, 0, 0.32, 0.44, 0.22, 0x9cc8e8, 0xb0d8f4).box(0, 0.47, 0, 0.1, 0.06, 0.1, 0x2f6ea8);
+      glintH = 0.75;
+      break;
+    case 'bait': // a cool box, lid ajar, blood on the side
+      b.box(0, 0.18, 0, 0.6, 0.36, 0.38, 0xe8e8e2, 0xf0f0ea).box(0.1, 0.38, 0, 0.62, 0.04, 0.4, 0x3a6ad8).box(-0.31, 0.12, 0.05, 0.005, 0.14, 0.12, 0x6a0a0a);
+      glintH = 0.6;
       break;
     case 'fuel': // jerrycans
       for (const [x, z] of [[0, 0], [0.62, 0.15]] as const) {

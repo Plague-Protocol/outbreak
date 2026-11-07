@@ -77,28 +77,40 @@ export interface MapData {
   gridN: number;
 }
 
-export type TaskId =
-  | 'map' | 'key' | 'power' | 'gate' | 'keycard' | 'radio'
-  | 'insulin' | 'deliver' | 'fuses' | 'flare' | 'barricade' | 'survivor' | 'shelter'
-  | 'fuel' | 'medkit' | 'rescue';
+import type { Archetype, Effect, PuzzleKind, Skin } from './content';
+
+/** A step's id, from the task content (public/content/tasks.json). */
+export type TaskId = string;
 
 export type Reward = 'speed' | 'calm' | 'funds';
 
 export interface Task {
   id: TaskId;
-  label: string;
-  hint: string;
+  kind: Archetype;
   required: boolean;
   requires: TaskId[];
   pos: Vec2;
   timeCost: number; // seconds removed from the clock on completion (optional tasks)
   reward: Reward | null;
   done: boolean;
-  /** Pieces to find first, scattered nearby (the fuses); the task itself is fitting them at `pos`. */
+  /** Pieces to find first, scattered nearby (fuses, batteries, map pieces); then you fit them at `pos`. */
   parts?: Vec2[];
   got?: boolean[];
   /** How long it takes, standing at it (default TASK_HOLD_SECONDS). */
   seconds?: number;
+  effect?: Effect;
+  /** Whoever you are escorting has to be with you. */
+  needsEscort?: boolean;
+  /** Who comes with you once this is done (escort-start). */
+  escort?: { name: string; skin: Skin; scale: number };
+  /** A door code or phone number for the step's group ({code} in its text). */
+  code: string;
+  puzzle?: PuzzleKind;
+  /** The puzzle's starting position (tile turns, or the far ends of the wires). */
+  scramble?: number[];
+  /** Infected to clear (a clear step), and the ones that came once you got close. */
+  clear?: number;
+  targets?: number[];
 }
 
 /** Someone you are taking somewhere: they follow you (and ride along in a car). */
@@ -107,6 +119,9 @@ export interface Escort {
   heading: number;
   speed: number;
   riding: boolean;
+  name: string;
+  skin: Skin;
+  scale: number;
 }
 
 export type ZombieKind = 'walker' | 'runner';
@@ -289,6 +304,9 @@ export type GameEvent =
   | { type: 'chapter-cleared'; chapter: number }
   | { type: 'part-taken'; id: TaskId; got: number; of: number }
   | { type: 'escort-behind' }
+  | { type: 'puzzle-open'; id: TaskId }
+  | { type: 'puzzle-wrong'; id: TaskId }
+  | { type: 'clear-start'; id: TaskId; count: number }
   | { type: 'flare-lit'; pos: Vec2 }
   | { type: 'horde'; pos: Vec2 }
   | { type: 'won' }

@@ -4,7 +4,8 @@
 //
 // Setting: Port Halden, an invented harbour city, on the night a virus empties it. Universal on
 // purpose: no real places, no real organisations.
-import type { LossReason, Survivor, SurvivorReward, TaskId } from './types';
+import type { LossReason, Survivor, SurvivorReward, Task } from './types';
+import { content, stepDef, stepText, type Ending } from './content';
 
 export interface Line {
   who: string;
@@ -20,178 +21,66 @@ export const HERO = 'Sam';
 export const RADIO = 'Emergency Radio';
 export const EVAC = 'Evac';
 
-export const INTRO: { card: string; sub: string; lines: Line[] } = {
-  card: 'DAY ONE',
-  sub: 'Port Halden',
-  lines: [
-    'Narrator|Port Halden. Three days ago a virus came in on a cargo ship. Nobody gave it a name. The news just called it the fever.',
-    'Narrator|Then the fevered stopped being sick. They got up off the hospital floors and walked out into the city, hungry.',
-    `${RADIO}|This is the emergency broadcast. The army is running one last evacuation tonight, from the far side of the city. Survivors, make your way there district by district. The subway tunnels between them are open for now, but the army is sealing them on a schedule.`,
-    `${RADIO}|The last helicopter leaves on schedule and it will not wait. If you need to defend yourself, the weapon stores have left their doors open. Halden Arms is one.`,
-    `${HERO}|One district at a time. Find the way through, get across, and get on that helicopter. Don't stop moving.`,
-  ].map(L),
-};
-
-interface Beat {
-  /** Objective line in the HUD while this step is current. */
-  objective: string;
-  /** Two or three words, for lists. */
-  short: string;
-  /** Spoken when the step becomes current (a radio brief or a thought). */
-  brief: string[];
-  /** Spoken when it is done. */
-  done: string[];
+/** The intro: a title card, then the cutscene. */
+export function intro(): { card: string; sub: string; lines: Line[] } {
+  const i = content().story.intro;
+  return { card: i.card, sub: i.sub, lines: i.lines.map(L) };
 }
 
-const BEATS: Record<TaskId, Beat> = {
-  map: {
-    objective: 'Find the evacuation map in the abandoned police car',
-    short: 'the map',
-    brief: [`${RADIO}|Police cruisers carried evacuation maps. Find one and you will know where the helicopter is landing.`],
-    done: [`${HERO}|Evac map, still on the dashboard. The landing zone is circled in red. I know where I'm going.`],
-  },
-  key: {
-    objective: 'Take the gate key from the fallen medic',
-    short: 'the gate key',
-    brief: [`${RADIO}|The way out is fenced. A medic went out for supplies with the gate key and never came back.`],
-    done: [`${HERO}|Keys on a lanyard: "SOUTH GATE". I'm sorry. Thank you.`],
-  },
-  power: {
-    objective: 'Restart the street generator',
-    short: 'the generator',
-    brief: [`${RADIO}|The zone's floodlights and gate run on a street generator, and the grid is down. Somebody has to start it by hand.`],
-    done: [`${HERO}|Come on, come on... it catches. Lights all down the street. Every one of them heard that.`],
-  },
-  gate: {
-    objective: 'Open the security gate',
-    short: 'the gate',
-    brief: [`${HERO}|Power's on. Now the gate.`],
-    done: [`${HERO}|The gate rolls back. Loud. Too loud. Move.`],
-  },
-  keycard: {
-    objective: 'Take the keycard from the fallen soldier',
-    short: 'the keycard',
-    brief: [`${RADIO}|The checkpoint only opens to a military keycard. The patrol that held this street did not make it.`],
-    done: [`${HERO}|He didn't make it to the checkpoint. His keycard will.`],
-  },
-  radio: {
-    objective: 'Get the evac frequency from the radio in the shop',
-    short: 'the radio',
-    brief: [`${RADIO}|...the helicopter only lands for people who call in first. The frequency is on a card by the counter in the corner shop...`],
-    done: [`${HERO}|Evac, this is Sam. I'm on my way. Please, hold that seat.`, `${EVAC}|Copy, Sam. We see you on thermal. Move fast.`],
-  },
-  insulin: {
-    objective: 'Take the insulin from the pharmacy fridge',
-    short: 'the insulin',
-    brief: [`${RADIO}|...a father on the north side, calling for anyone. His daughter is diabetic and they're trapped in a laundromat. The pharmacy two streets over had a fridge...`],
-    done: [`${HERO}|Two pens, still cold. The fridge must have run on a battery. Hang on, kid.`],
-  },
-  deliver: {
-    objective: 'Bring the insulin to the girl in the laundromat',
-    short: 'the girl',
-    brief: [`${HERO}|The laundromat. Get it to her before it warms up.`],
-    done: ['Joel|You came. You actually came. Here, sweetheart, here...', 'Joel|Listen: the main road is swarming. Keep to the side streets. God bless you.'],
-  },
-  fuses: {
-    objective: 'Find the three fuses for the shutter box',
-    short: 'the fuses',
-    brief: [`${RADIO}|The tunnel shutters run off a street fuse box, and it's been stripped. Maintenance crews left spares in their vans around the block. You'll need three.`],
-    done: [`${HERO}|Click. Click. Click. Something hums inside the wall. That's one door that'll open for me.`],
-  },
-  flare: {
-    objective: 'Light the signal flare at the crossroads',
-    short: 'the flare',
-    brief: [`${RADIO}|Rescue flights are spotting by flare tonight. Light one where they can see it from the air, then get clear. Everything nearby will go to the light.`],
-    done: [`${HERO}|Red light on every wall. They're turning toward it. Not toward me. Go, now.`],
-  },
-  barricade: {
-    objective: 'Break through the barricade',
-    short: 'the barricade',
-    brief: [`${HERO}|Somebody barricaded the street: cars, doors, a fridge. The only way through. It'll take a while, and it'll be loud.`],
-    done: [`${HERO}|It's down. And everything for three blocks heard it. Move!`],
-  },
-  survivor: {
-    objective: 'Find Nora, hiding in the crashed bus',
-    short: 'Nora',
-    brief: [`${RADIO}|...this is Nora, I'm a nurse, I'm in the crashed bus on the avenue... I can't get out on my own. Please.`],
-    done: ['Nora|You heard me? Okay. Okay. I\'ll stay right behind you. Don\'t go too fast.'],
-  },
-  shelter: {
-    objective: 'Get Nora to the church shelter (she follows you)',
-    short: 'the shelter',
-    brief: [`${HERO}|There's a shelter in the church, lights on, doors barred. Keep her close and get her there.`],
-    done: ['Nora|We made it. They have medics in here, and a radio. Thank you. Go, find your tunnel.'],
-  },
-  fuel: {
-    objective: 'Optional: siphon fuel from the wrecks (costs time)',
-    short: 'fuel',
-    brief: [],
-    done: [`${HERO}|A jerrycan of petrol and an energy bar from the glovebox. My legs feel lighter.`],
-  },
-  medkit: {
-    objective: 'Optional: gather medical supplies (costs time)',
-    short: 'medical supplies',
-    brief: [],
-    done: [`${HERO}|Bandages, painkillers, and ammonia. They hate the smell. They'll come slower now.`],
-  },
-  rescue: {
-    objective: 'Optional: help the survivor hiding in the shop (costs time)',
-    short: 'the survivor',
-    brief: [],
-    done: ['Ana|You came back for me? Thank you. Go, go. I\'ll lock myself in until morning.', `${HERO}|Ana pressed her savings into my hand. "Buy something that shoots."`],
-  },
-};
-
-/** Before the last chapter the map shows the way into the next district, not the landing zone. */
-const DISTRICT_MAP: Beat = {
-  objective: 'Find the district map in the abandoned police car',
-  short: 'the map',
-  brief: [`${RADIO}|Police cruisers carried district maps with the open tunnels marked. Find one and you'll know the way out of here.`],
-  done: [`${HERO}|The map. One subway entrance is marked "OPEN". That's my way into the next district.`],
-};
-const beat = (id: TaskId, final: boolean): Beat => (id === 'map' && !final ? DISTRICT_MAP : BEATS[id]);
-
-export function objectiveFor(id: TaskId, final = true): string {
-  return beat(id, final).objective;
+/** A step's words, from the task content, with its values ({code}) filled in. */
+function words(t: Task, final: boolean) {
+  return stepText(t.id, final, { code: t.code });
 }
 
-export function shortName(id: TaskId): string {
-  return BEATS[id].short;
+/** The HUD objective for a step right now: its pieces found so far, how many are left to clear. */
+export function objectiveFor(t: Task, final = true, left: number | null = null): string {
+  const d = stepDef(t.id);
+  if (d.parts && t.got) {
+    const got = t.got.filter(Boolean).length, of = t.got.length;
+    return got < of ? d.parts.objective.replace('{got}', String(got)).replace('{of}', String(of)) : d.parts.fit;
+  }
+  const o = words(t, final).objective;
+  return left !== null ? `${o} (${left} left)` : o;
 }
 
-export function briefFor(id: TaskId, final = true): Line[] {
-  return beat(id, final).brief.map(L);
+export function shortName(t: Task): string {
+  return words(t, true).short;
 }
 
-export function doneFor(id: TaskId, final = true): Line[] {
-  return beat(id, final).done.map(L);
+export function briefFor(t: Task, final = true): Line[] {
+  return words(t, final).brief.map(L);
 }
 
-/** The fuse step's objective changes as you find them. */
-export function partsObjective(id: TaskId, got: number, of: number): string {
-  if (id === 'fuses') return got < of ? `Find the fuses for the shutter box (${got}/${of})` : 'Fit the fuses in the shutter box';
-  return BEATS[id].objective;
+export function doneFor(t: Task, final = true): Line[] {
+  return words(t, final).done.map(L);
 }
 
-export const PARTS_DONE: Line[] = [L(`${HERO}|That's all of them. Now the fuse box.`)];
-export const ESCORT_BEHIND: Line[] = [L(`${HERO}|Where's Nora? I can't leave her out here. Wait for her.`)];
+/** Said when the last piece is found. */
+export function partsReady(t: Task): Line[] {
+  const p = stepDef(t.id).parts;
+  return p ? [L(p.ready)] : [];
+}
+
+/** Said at the door when whoever you are escorting has fallen behind. */
+export function escortBehind(t: Task | null): Line[] {
+  const e = t ? stepDef(t.id).escort : undefined;
+  return [L(e?.behind ?? `${HERO}|They're not with me. Wait for them.`)];
+}
+
+/** The verb on the Use button for a step. */
+export function verbFor(t: Task): string {
+  return stepDef(t.id).verb;
+}
 
 /** The card shown as each chapter begins. */
-export const CHAPTER_CARDS: ReadonlyArray<{ card: string; sub: string }> = [
-  { card: 'CHAPTER ONE', sub: 'Where it started' },
-  { card: 'CHAPTER TWO', sub: 'Across the tracks' },
-  { card: 'CHAPTER THREE', sub: 'The last helicopter' },
-];
 export function chapterCard(chapter: number): { card: string; sub: string } {
-  return CHAPTER_CARDS[chapter] ?? { card: `CHAPTER ${chapter + 1}`, sub: 'Keep moving' };
+  return content().story.chapters[chapter] ?? { card: `CHAPTER ${chapter + 1}`, sub: 'Keep moving' };
 }
 
 /** Spoken as you come up out of the tunnel into a new district. */
 export function chapterLines(final: boolean): Line[] {
-  return (final
-    ? [`${HERO}|Last stretch. I can hear rotors somewhere over the rooftops.`, `${RADIO}|...final evacuation loading on schedule. Anyone still out there, this is your last chance...`]
-    : [`${HERO}|Out of the tunnel. New streets, same nightmare. Find the way through.`]
-  ).map(L);
+  const a = content().story.arrive;
+  return (final ? a.final : a.other).map(L);
 }
 
 /** The HUD objective once every step is done. */
@@ -209,14 +98,9 @@ export function exitLocked(missing: string[], final: boolean): Line[] {
 }
 
 export function tierLines(tier: number): Line[] {
-  return (tier === 1
-    ? [`${RADIO}|Reports from downtown. They are coming out of the buildings now, hundreds of them. And some of them are running.`]
-    : [`${RADIO}|The helicopter is on the pad and loading. If you are still out there... run. Don't stop for anything.`]
-  ).map(L);
+  return (content().story.tier[tier] ?? []).map(L);
 }
 
-export const SAFEHOUSE_LABEL = 'Get to the evac point';
-export const SAFEHOUSE_OPEN: Line[] = [L(`${HERO}|That's everything. The evac point. Go!`)];
 
 export function safehouseLocked(missing: string[]): Line[] {
   return [L(`${EVAC}|We can't let you through yet. ${missing.length > 0 ? `You still need ${missing.join(', ')}.` : ''}`)];
@@ -252,33 +136,7 @@ export function survivorLines(v: Survivor, moment: 'asked' | 'reminder' | 'fetch
   }
 }
 
-export interface Ending {
-  title: string;
-  text: string;
-}
-
 export function ending(outcome: 'won' | LossReason, final = true): Ending {
-  if (outcome === 'time' && !final) {
-    return {
-      title: 'SEALED IN',
-      text: 'Somewhere under the street a siren winds down, and the subway shutters slam, one station after another. The army has sealed the tunnels. The way across is gone, and the dark around you starts to move.',
-    };
-  }
-  switch (outcome) {
-    case 'won':
-      return {
-        title: 'EVACUATED',
-        text: 'Hands haul you up the ramp and the helicopter lifts before the door is shut. A medic checks your arms, then your eyes, then hands you water. Below, Port Halden goes dark street by street. Tonight, you are alive.',
-      };
-    case 'caught':
-      return {
-        title: 'TAKEN',
-        text: 'Hands from behind, then teeth. The street lights blur. Somewhere far away, the emergency broadcast is still reading out the evacuation schedule.',
-      };
-    case 'time':
-      return {
-        title: 'LEFT BEHIND',
-        text: 'You hear the rotors before you reach the corner, then the lights climb away over the harbour. The street behind you starts to move.',
-      };
-  }
+  const e = content().story.endings;
+  return outcome === 'time' && !final ? e.sealed : e[outcome];
 }

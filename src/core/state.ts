@@ -212,7 +212,7 @@ export function createGame(
     safehouse: { ...level.safehouse },
     escort: null,
     flare: null,
-    safehouseKnown: !level.tasks.some((t) => t.id === 'map'),
+    safehouseKnown: !level.tasks.some((t) => t.effect === 'reveal-exit'),
     hold: { taskId: null, progress: 0 },
     speedMul: 1,
     zombieMul: 1,
@@ -445,6 +445,7 @@ export function step(s: GameState, input: Input, dt: number): GameState {
   updateSurvivors(s);
   updateEscort(s, dt);
   updateFlare(s, dt);
+  updateClear(s);
   s.safeT = Math.max(0, s.safeT - dt);
   refreshFlow(s);
   updateTasks(s, dt);
@@ -472,7 +473,7 @@ export function interactionFor(s: GameState): Interaction | null {
   if (v) return { kind: 'exit', vehicleId: v.id };
   const p = s.player.pos;
   const task = s.tasks.find((t) => !t.done && isRevealed(s, t) && s.hold.taskId !== t.id && dist(t.pos, p) < TASK_RADIUS
-    && (!t.got || t.got.every(Boolean)));
+    && (!t.got || t.got.every(Boolean)) && t.kind !== 'clear');
   if (task) return { kind: 'task', taskId: task.id };
   const store = s.stores.find((st) => dist(st.pos, p) < USE_RADIUS);
   if (store) return { kind: 'store', storeId: store.id };
@@ -523,8 +524,12 @@ function interact(s: GameState): void {
         s.events.push({ type: 'task-locked', id: t.id, needs: t.requires.filter((id) => !s.tasks.some((x) => x.id === id && x.done)) });
         return;
       }
-      if (t.id === 'shelter' && (!s.escort || dist(s.escort.pos, s.player.pos) > ESCORT_NEAR)) {
-        s.events.push({ type: 'escort-behind' }); // she has to be with you
+      if (t.needsEscort && (!s.escort || dist(s.escort.pos, s.player.pos) > ESCORT_NEAR)) {
+        s.events.push({ type: 'escort-behind' }); // they have to be with you
+        return;
+      }
+      if (t.kind === 'puzzle') { // the puzzle page: solved there, through solvePuzzle
+        s.events.push({ type: 'puzzle-open', id: t.id });
         return;
       }
       s.work = null;
@@ -1237,13 +1242,16 @@ function updateTasks(s: GameState, dt: number): void {
   }
   s.hold.progress += dt / (t.seconds ?? TASK_HOLD_SECONDS);
   if (s.hold.progress < 1) return;
-
-  t.done = true;
   s.hold.taskId = null;
   s.hold.progress = 0;
+  completeTask(s, t);
+}
+
+/** A step is done: the grace moment, its effect, its cost and reward. */
+function completeTask(s: GameState, t: Task): void {
+  t.done = true;
   s.safeT = SAFE_AFTER;
   s.events.push({ type: 'task-done', id: t.id });
-  if (t.id === 'map') s.safehouseKnown = true;
   stepDone(s, t);
   if (t.timeCost > 0) {
     s.remaining -= t.timeCost;
@@ -1255,26 +1263,66 @@ function updateTasks(s: GameState, dt: number): void {
   else if (t.reward === 'funds') s.funds += 50;
 }
 
-/** What finishing each kind of step does to the night. */
+/** What finishing a step does to the night (its effect, from the task content). */
 function stepDone(s: GameState, t: Task): void {
-  switch (t.id) {
-    case 'survivor': // Nora comes out of the bus and follows you
-      s.escort = { pos: { x: t.pos.x + 1, y: t.pos.y + 1 }, heading: 0, speed: 0, riding: false };
+  switch (t.effect) {
+    case 'reveal-exit': s.safehouseKnown = true; break;
+    case 'escort-start': // they come out of hiding and follow you
+      s.escort = { pos: { x: t.pos.x + 1, y: t.pos.y + 1 }, heading: 0, speed: 0, riding: false, ...t.escort! };
       break;
-    case 'shelter': // she is inside, safe
-      s.escort = null;
-      break;
-    case 'flare':
+    case 'escort-end': s.escort = null; break; // safe inside
+    case 'lure': // a flare, bait: everything near it goes to it for a while
       s.flare = { pos: { ...t.pos }, t: FLARE_SECONDS };
       s.events.push({ type: 'flare-lit', pos: { ...t.pos } });
       lure(s, t.pos, FLARE_RADIUS, 3);
       break;
-    case 'barricade': // the noise brings them
+    case 'horde': // the noise brings them
       s.events.push({ type: 'horde', pos: { ...t.pos } });
       spawnWave(s, Math.max(1, s.tier));
       break;
     default: break;
   }
+}
+
+/** The puzzle page's answer. Checked here (so a replay checks it too); right completes the step.
+ * tiles: turns made on each tile; keypad: the digits; wires: for each left wire, the right end it
+ * was joined to. */
+export function solvePuzzle(s: GameState, id: TaskId, answer: number[] | string): boolean {
+  const t = s.tasks.find((x) => x.id === id);
+  if (!t || t.done || t.kind !== 'puzzle' || !isRevealed(s, t) || s.phase !== 'playing') return false;
+  let right = false;
+  if (t.puzzle === 'keypad') right = typeof answer === 'string' && answer === t.code;
+  else if (t.puzzle === 'tiles') right = Array.isArray(answer) && answer.length === 9 && t.scramble!.every((r, i) => (r + answer[i]!) % 4 === 0);
+  else if (t.puzzle === 'wires') right = Array.isArray(answer) && answer.length === 4 && answer.every((j, i) => t.scramble![j] === i);
+  if (!right) { s.events.push({ type: 'puzzle-wrong', id }); return false; }
+  completeTask(s, t);
+  return true;
+}
+
+/** A clear step: they come for you once you get close; it is done when they are all down. */
+function updateClear(s: GameState): void {
+  const t = currentTask(s);
+  if (!t || t.kind !== 'clear') return;
+  if (!t.targets) {
+    if (dist(t.pos, s.player.pos) > 26) return;
+    t.targets = [];
+    for (let k = 0; k < (t.clear ?? 4); k++) {
+      const a = (k / (t.clear ?? 4)) * Math.PI * 2 + next(s.rng);
+      t.targets.push(s.nextZombieId);
+      addZombie(s, k % 3 === 2 ? 'runner' : 'walker', { x: t.pos.x + Math.cos(a) * range(s.rng, 4, 8), y: t.pos.y + Math.sin(a) * range(s.rng, 4, 8) }, true);
+      s.zombies[s.zombies.length - 1]!.alertT = 30; // they know you are there
+    }
+    s.events.push({ type: 'clear-start', id: t.id, count: t.targets.length });
+    return;
+  }
+  const left = s.zombies.filter((z) => t.targets!.includes(z.id) && z.action !== 'dead').length;
+  if (left === 0) completeTask(s, t);
+}
+
+/** How many are left to clear at a clear step (null if they have not come yet). */
+export function clearLeft(s: GameState, t: Task): number | null {
+  if (!t.targets) return null;
+  return s.zombies.filter((z) => t.targets!.includes(z.id) && z.action !== 'dead').length;
 }
 
 /** Walk over a piece of the current step (a fuse) to take it. */
@@ -1295,7 +1343,7 @@ function updateEscort(s: GameState, dt: number): void {
   if (!e) return;
   const car = playerVehicle(s);
   if (car) { e.riding = true; e.pos = { ...car.pos }; e.speed = 0; return; }
-  if (e.riding) { e.riding = false; e.pos = { x: s.player.pos.x + 1, y: s.player.pos.y }; }
+  if (e.riding) { e.riding = false; e.pos = { x: s.player.pos.x + 1, y: s.player.pos.y }; resolve(s.map, e.pos, PLAYER_RADIUS); }
   const p = s.player.pos;
   const dx = p.x - e.pos.x, dy = p.y - e.pos.y, d = Math.hypot(dx, dy);
   let vx = 0, vy = 0;

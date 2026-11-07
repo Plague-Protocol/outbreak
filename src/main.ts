@@ -1,12 +1,13 @@
 import {
-  chapterBonus, createGame, currentTask, finalChapter, nextChapter, partsOf, requiredDone, restartChapter, step, taskTarget,
-  type GameState,
+  chapterBonus, clearLeft, createGame, currentTask, finalChapter, nextChapter, requiredDone, restartChapter, solvePuzzle, step,
+  taskTarget, type GameState,
 } from './core/state';
 import {
-  briefFor, chapterCard, chapterLines, doneFor, ESCORT_BEHIND, exitLabel, exitLocked, exitOpen, INTRO, lockedTask, objectiveFor,
-  PARTS_DONE, partsObjective, shortName, survivorLines, tierLines, type Line,
+  briefFor, chapterCard, chapterLines, doneFor, escortBehind, exitLabel, exitLocked, exitOpen, intro, lockedTask, objectiveFor,
+  partsReady, shortName, survivorLines, tierLines, type Line,
 } from './core/story';
-import type { GameEvent, TaskId } from './core/types';
+import type { GameEvent, Task, TaskId } from './core/types';
+import { setContent, stepDef, type Content } from './core/content';
 import { GameView } from './render/view';
 import { loadCharacterAssets } from './render/characters';
 import { Controls } from './input/controls';
@@ -28,6 +29,8 @@ const debug = params.has('debug');
 type Mode = 'title' | 'intro' | 'play' | 'ending';
 
 const newSeed = () => (Math.random() * 0xffffffff) >>> 0; // randomness lives here, not in core/
+// the task content (what each step is, says and looks like) comes as data, before the first night
+setContent(await fetch('/content/tasks.json').then((r) => r.json() as Promise<Content>));
 let state: GameState = createGame(params.has('seed') ? Number(params.get('seed')) >>> 0 : newSeed());
 let mode: Mode = 'title';
 let endTimer = -1;
@@ -107,8 +110,8 @@ function begin(fresh: GameState, withIntro: boolean): void {
     mode = 'intro';
     hud.cinema(true);
     view.cinematic = 0;
-    hud.showCard(INTRO.card, INTRO.sub, 3.2);
-    window.setTimeout(() => dialogue.playCutscene(INTRO.lines, startPlay), 3400);
+    hud.showCard(intro().card, intro().sub, 3.2);
+    window.setTimeout(() => dialogue.playCutscene(intro().lines, startPlay), 3400);
   } else {
     const c = chapterCard(state.chapter);
     hud.showCard(c.card, c.sub, 2.2);
@@ -123,8 +126,7 @@ function nextUp(): NextUp | null {
   const cur = currentTask(state);
   const ready = requiredDone(state);
   const target = ready ? (state.safehouseKnown ? state.safehouse : null) : cur ? taskTarget(state, cur) : null;
-  const parts = cur ? partsOf(cur) : null;
-  const title = ready ? exitLabel(final) : cur ? (parts ? partsObjective(cur.id, parts.got, parts.of) : objectiveFor(cur.id, final)) : null;
+  const title = ready ? exitLabel(final) : cur ? objectiveFor(cur, final, cur.kind === 'clear' ? clearLeft(state, cur) : null) : null;
   if (!title) return null;
   const m = target ? Math.round(Math.hypot(target.x - state.player.pos.x, target.y - state.player.pos.y) * 0.63) : null;
   return { title, detail: m !== null ? `${m} m away. Follow the yellow arrow and the ring on your map.` : 'Look around.' };
@@ -174,25 +176,50 @@ function finish(): void {
   hud.showEnd(state);
 }
 
+const task = (id: TaskId): Task | undefined => state.tasks.find((t) => t.id === id);
+const cap = (s: string) => s.charAt(0).toUpperCase() + s.slice(1);
+
+/** A puzzle page (loaded the first time one is needed). The game waits while it is open; the answer is
+ * checked by the core, and whatever that sets off is told like any other moment. */
+async function openPuzzle(t: Task): Promise<void> {
+  paused = true;
+  controls.enabled = false;
+  const { showPuzzle } = await import('./ui/puzzle');
+  showPuzzle(t, {
+    solve: (answer) => {
+      const ok = solvePuzzle(state, t.id, answer);
+      const happened = state.events.splice(0); // outside step(): pass them on by hand
+      pending.push(...happened);
+      if (ok) narrate(happened);
+      else hud.toast('That is not it.');
+      return ok;
+    },
+    close: () => { paused = cityMap.open || storePage.open; controls.reset(); controls.enabled = !paused && !talk.open; },
+  });
+}
+
 /** Story beats driven by what happened this frame. */
 function narrate(events: readonly GameEvent[]): void {
   let forceNext = false;
   for (const e of events) {
     switch (e.type) {
       case 'part-taken':
-        hud.toast(`Fuse ${e.got} of ${e.of}`);
-        if (e.got === e.of) { convo.push(...PARTS_DONE); forceNext = true; }
+        hud.toast(`${cap(stepDef(e.id).parts?.name ?? 'piece')} ${e.got} of ${e.of}`);
+        if (e.got === e.of) { const t = task(e.id); if (t) convo.push(...partsReady(t)); forceNext = true; }
         break;
-      case 'escort-behind': dialogue.say(ESCORT_BEHIND); break;
+      case 'escort-behind': dialogue.say(escortBehind(currentTask(state))); break;
+      case 'puzzle-open': { const t = task(e.id); if (t) openPuzzle(t); break; }
+      case 'puzzle-wrong': hud.toast('That is not it.'); break;
+      case 'clear-start': hud.toast(`${e.count} of them, and they've seen you. Fight!`); view.shake(0.4); break;
       case 'flare-lit': hud.toast('The flare is pulling them in. Keep away from it.'); break;
       case 'horde': hud.toast('They heard that. Here they come!'); view.shake(0.6); break;
-      case 'task-done': convo.push(...doneFor(e.id, finalChapter(state))); break;
+      case 'task-done': { const t = task(e.id); if (t) convo.push(...doneFor(t, finalChapter(state))); break; }
       case 'tier-up': dialogue.say(tierLines(e.tier)); view.shake(0.5); break;
       case 'safehouse-locked':
-        dialogue.say(exitLocked(state.tasks.filter((t) => t.required && !t.done).map((t) => shortName(t.id)), finalChapter(state)));
+        dialogue.say(exitLocked(state.tasks.filter((t) => t.required && !t.done).map((t) => shortName(t)), finalChapter(state)));
         break;
       case 'task-locked':
-        dialogue.say(lockedTask(e.needs.map((id) => shortName(id))));
+        dialogue.say(lockedTask(e.needs.flatMap((id) => { const t = task(id); return t ? [shortName(t)] : []; })));
         break;
       case 'zombie-attack': {
         const z = state.zombies.find((q) => q.id === e.id);
@@ -249,11 +276,12 @@ function narrate(events: readonly GameEvent[]): void {
     }
   }
   let changed = forceNext;
-  const cur = currentTask(state)?.id ?? null;
+  const curTask = currentTask(state);
+  const cur = curTask?.id ?? null;
   if (cur !== lastTaskId) {
     lastTaskId = cur;
     changed = true;
-    if (cur) convo.push(...briefFor(cur, finalChapter(state)));
+    if (curTask) convo.push(...briefFor(curTask, finalChapter(state)));
   }
   const ready = requiredDone(state);
   if (ready && !wasReady) { convo.push(...exitOpen(finalChapter(state))); changed = true; }
