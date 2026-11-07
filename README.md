@@ -26,13 +26,18 @@ pixel ratio, `?lights=0..6` number of real point lights, `?zoom=N` camera span.
   the district map is always the last, and it shows the way out: a subway entrance into the next
   district. Weapons, ammo, gear, cash and kills carry over; seconds left on the clock pay $0.50
   each, and you catch your breath (+25 health). Later districts have runners in the crowd and
-  bigger waves. The third chapter ends at the helicopter. A retry restarts the chapter with what
+  bigger waves. The third chapter ends at the helicopter. In the first two, the army seals the subway tunnels when
+  the clock runs out (SEALED IN). A retry restarts the chapter with what
   you came into it with.
 - **Move:** drag anywhere (floating stick) or WASD. A light push walks, a full push runs.
 - **Fire / swing:** hold FIRE (or Space). Aim assist picks the zombie in front of you. Gunfire
   is loud: everything within earshot comes looking. With a melee weapon the button reads SWING.
 - **Use:** the contextual button (or E): start an objective, search a supply crate, enter a
   weapon store, get in or out of a vehicle. **Reload** (R) and **swap weapon** (Q) buttons.
+- **Story moments wait for you:** finding something, the radio's next brief, a survivor talking
+  and a new chapter open a message panel and the game holds (no clock, no zombies) until you tap
+  through it. Its last page says plainly what to do next and how far it is. You then get a moment
+  before the zombies come on again.
 - **Objectives are safe:** while you work an objective or talk to someone (and for a second
   after), the zombies that were after you hold back and wait. Anything you take (keys, keycard,
   map, supplies) lies where you can see it and is gone once taken.

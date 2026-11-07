@@ -75,6 +75,15 @@ export class Controls {
     button('btn-throw', () => { this.queued.throw = true; });
   }
 
+  /** Forget presses made while the game was waiting (closing a message must not also press Use). */
+  reset(): void {
+    this.queued = { action: false, reload: false, swap: false, throw: false };
+    this.fireHeld = false;
+    this.pointerId = null;
+    this.stickVec = { x: 0, y: 0 };
+    this.stick.style.display = 'none';
+  }
+
   /** Movement and buttons for one simulation step. Edge-triggered buttons fire once. */
   read(): Input {
     if (!this.enabled) return { dx: 0, dy: 0 };

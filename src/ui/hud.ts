@@ -110,7 +110,7 @@ export class Hud {
     }
 
     const final = finalChapter(s);
-    const clock = `CHAPTER ${s.chapter + 1}/${CHAPTERS} · ${final ? 'LAST EVAC IN' : 'TIME LEFT'}`;
+    const clock = `CHAPTER ${s.chapter + 1}/${CHAPTERS} · ${final ? 'LAST EVAC IN' : 'TUNNELS SEAL IN'}`;
     if (clock !== this.lastClock) { this.lastClock = clock; this.clockLabel.textContent = clock; }
     const cur = currentTask(s);
     const ready = requiredDone(s);
@@ -172,7 +172,7 @@ export class Hud {
 
   showEnd(s: GameState): void {
     const outcome = s.phase === 'won' ? 'won' : s.lossReason ?? 'caught';
-    const e = ending(outcome);
+    const e = ending(outcome, finalChapter(s));
     const title = $('end-title');
     title.textContent = e.title;
     title.className = s.phase === 'won' ? 'won' : 'lost';

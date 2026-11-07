@@ -67,6 +67,24 @@
   #skip { position: fixed; right: 14px; top: calc(11vh - 40px); z-index: 7; display: none; pointer-events: auto; background: none;
     color: #aaa; border: 1px solid #555; border-radius: 6px; padding: 5px 12px; font-size: 13px; }
   #tap-catcher { position: fixed; inset: 0; z-index: 5; display: none; }
+  /* story moments you read before carrying on: the game waits behind this */
+  #talk { position: fixed; inset: 0; z-index: 7; display: none; align-items: flex-end; justify-content: center;
+    background: linear-gradient(to top, rgba(0,0,0,.6), rgba(0,0,0,.18) 55%); pointer-events: auto;
+    padding: 0 12px calc(env(safe-area-inset-bottom, 0px) + 22px); }
+  #talk .panel { width: min(94vw, 640px); background: rgba(10,12,16,.92); border: 1px solid rgba(255,255,255,.12);
+    border-left: 4px solid #f2b630; border-radius: 10px; padding: 14px 18px 12px; box-shadow: 0 8px 30px rgba(0,0,0,.6); }
+  #talk-who { font-size: 12px; letter-spacing: .2em; text-transform: uppercase; color: #f2b630; font-weight: 700; margin-bottom: 6px; }
+  #talk-text { font-size: 18px; line-height: 1.45; min-height: 2.9em; color: #f1ede6; }
+  #talk-hint { text-align: right; font-size: 12px; letter-spacing: .12em; text-transform: uppercase; color: #aab; margin-top: 6px;
+    min-height: 1.2em; animation: pulse 1.4s infinite; }
+  #talk-hint:not(:empty)::after { content: ' \25B8'; }
+  #talk.radio .panel { border-left-color: #7fd38a; } #talk.radio #talk-who { color: #7fd38a; }
+  #talk.other .panel { border-left-color: #8cc4ff; } #talk.other #talk-who { color: #8cc4ff; }
+  #talk.next .panel { border-left-color: #f2b630; background: rgba(28,22,8,.94); }
+  #talk.next #talk-text b { display: block; font-size: 22px; color: #ffd36a; }
+  #talk.next #talk-text small { display: block; font-size: 13px; opacity: .75; margin-top: 4px; }
+  body.talking .pad, body.talking #minimap, body.talking #arrow, body.talking #stick { opacity: 0; pointer-events: none; }
+  body.talking #subs { opacity: 0; }
 
   #card { position: fixed; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; pointer-events: none;
     opacity: 0; transition: opacity 1.2s; z-index: 6; text-align: center; }
@@ -208,6 +226,10 @@
     #btn-throw { width: 50px; height: 50px; right: calc(var(--r) + 186px); bottom: calc(var(--b) + 18px); font-size: 8px; }
     #btn-throw b { font-size: 12px; }
     #subs { bottom: calc(var(--b) + 6px); left: 42%; width: min(36vw, 400px); }
+    #talk { padding: 0 var(--r) calc(var(--b) + 8px) var(--l); }
+    #talk .panel { width: min(78vw, 640px); padding: 10px 16px 8px; }
+    #talk-text { font-size: 16px; min-height: 2.6em; }
+    #talk.next #talk-text b { font-size: 19px; }
     #title small { padding: 0 var(--r) 0 var(--l); }
     #title h1 { font-size: 52px; }
     #title button { margin-top: 10px; }
@@ -240,6 +262,7 @@
 <div id="card"><h2 id="card-title"></h2><p id="card-sub"></p></div>
 <div id="subs"><div class="who" id="subs-who"></div><div class="text" id="subs-text"></div></div>
 <div id="tap-catcher"></div>
+<div id="talk"><div class="panel"><div id="talk-who"></div><div id="talk-text"></div><div id="talk-hint"></div></div></div>
 <button id="skip">Skip &rsaquo;</button>
 <div id="stick"><div id="knob"></div></div>
 <canvas id="minimap"></canvas>

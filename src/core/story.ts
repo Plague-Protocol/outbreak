@@ -26,7 +26,7 @@ export const INTRO: { card: string; sub: string; lines: Line[] } = {
   lines: [
     'Narrator|Port Halden. Three days ago a virus came in on a cargo ship. Nobody gave it a name. The news just called it the fever.',
     'Narrator|Then the fevered stopped being sick. They got up off the hospital floors and walked out into the city, hungry.',
-    `${RADIO}|This is the emergency broadcast. The army is running one last evacuation tonight, from the far side of the city. Survivors, make your way there district by district. The subway tunnels between them are still open.`,
+    `${RADIO}|This is the emergency broadcast. The army is running one last evacuation tonight, from the far side of the city. Survivors, make your way there district by district. The subway tunnels between them are open for now, but the army is sealing them on a schedule.`,
     `${RADIO}|The last helicopter leaves on schedule and it will not wait. If you need to defend yourself, the weapon stores have left their doors open. Halden Arms is one.`,
     `${HERO}|One district at a time. Find the way through, get across, and get on that helicopter. Don't stop moving.`,
   ].map(L),
@@ -206,7 +206,13 @@ export interface Ending {
   text: string;
 }
 
-export function ending(outcome: 'won' | LossReason): Ending {
+export function ending(outcome: 'won' | LossReason, final = true): Ending {
+  if (outcome === 'time' && !final) {
+    return {
+      title: 'SEALED IN',
+      text: 'Somewhere under the street a siren winds down, and the subway shutters slam, one station after another. The army has sealed the tunnels. The way across is gone, and the dark around you starts to move.',
+    };
+  }
   switch (outcome) {
     case 'won':
       return {

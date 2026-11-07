@@ -2,7 +2,8 @@ import {
   chapterBonus, createGame, currentTask, finalChapter, nextChapter, requiredDone, restartChapter, step, type GameState,
 } from './core/state';
 import {
-  briefFor, chapterCard, chapterLines, doneFor, exitLocked, exitOpen, INTRO, lockedTask, shortName, survivorLines, tierLines,
+  briefFor, chapterCard, chapterLines, doneFor, exitLabel, exitLocked, exitOpen, INTRO, lockedTask, objectiveFor, shortName,
+  survivorLines, tierLines, type Line,
 } from './core/story';
 import type { GameEvent, TaskId } from './core/types';
 import { GameView } from './render/view';
@@ -10,9 +11,10 @@ import { loadCharacterAssets } from './render/characters';
 import { Controls } from './input/controls';
 import { Hud } from './ui/hud';
 import { Dialogue } from './ui/dialogue';
+import { Talk, type NextUp } from './ui/talk';
 import { Sound } from './audio/sound';
 import { CityMap } from './ui/map';
-import { GEAR, WEAPON_NAMES } from './core/config';
+import { GEAR, SAFE_AFTER, WEAPON_NAMES } from './core/config';
 import { StorePage } from './ui/store';
 import { anonymousSession } from './seams/session';
 import { noopProgress, type RunResult } from './seams/progress';
@@ -38,6 +40,9 @@ const assets = await loadCharacterAssets().catch((e) => { startBtn.textContent =
 const view = new GameView($('game'), assets);
 const controls = new Controls($('game'), $('stick'), $('knob'));
 const dialogue = new Dialogue();
+const talk = new Talk();
+/** Story lines to show in the Talk panel at the end of this frame (the game waits while it is open). */
+const convo: Line[] = [];
 const sound = new Sound();
 const hud = new Hud({
   retry: () => begin(restartChapter(state), false),
@@ -88,6 +93,8 @@ function begin(fresh: GameState, withIntro: boolean): void {
   state = fresh;
   hud.reset();
   storePage.hide();
+  if (talk.open) talk.close();
+  convo.length = 0;
   paused = false;
   controls.enabled = true;
   if (cityMap.open) cityMap.toggle();
@@ -105,8 +112,35 @@ function begin(fresh: GameState, withIntro: boolean): void {
     const c = chapterCard(state.chapter);
     hud.showCard(c.card, c.sub, 2.2);
     startPlay();
-    if (state.chapter > 0) dialogue.say(chapterLines(finalChapter(state)));
+    if (state.chapter > 0) convo.push(...chapterLines(finalChapter(state)));
   }
+}
+
+/** The next thing to do, in full, with how far it is. */
+function nextUp(): NextUp | null {
+  const final = finalChapter(state);
+  const cur = currentTask(state);
+  const ready = requiredDone(state);
+  const target = ready ? (state.safehouseKnown ? state.safehouse : null) : cur?.pos ?? null;
+  const title = ready ? exitLabel(final) : cur ? objectiveFor(cur.id, final) : null;
+  if (!title) return null;
+  const m = target ? Math.round(Math.hypot(target.x - state.player.pos.x, target.y - state.player.pos.y) * 0.63) : null;
+  return { title, detail: m !== null ? `${m} m away. Follow the yellow arrow and the ring on your map.` : 'Look around.' };
+}
+
+/** Open the Talk panel with what this frame had to say; the game holds until it is read. */
+function openTalk(objectiveChanged: boolean): void {
+  if (convo.length === 0 && !objectiveChanged) return;
+  if (state.phase !== 'playing') { convo.length = 0; return; }
+  const lines = convo.splice(0);
+  dialogue.clear();
+  controls.enabled = false;
+  controls.reset();
+  talk.show(lines, objectiveChanged ? nextUp() : null, () => {
+    controls.reset();
+    controls.enabled = !paused;
+    state.safeT = Math.max(state.safeT, SAFE_AFTER); // a moment to get moving before they come on again
+  });
 }
 
 /** Down the subway stairs and up into the next district. */
@@ -142,7 +176,7 @@ function finish(): void {
 function narrate(events: readonly GameEvent[]): void {
   for (const e of events) {
     switch (e.type) {
-      case 'task-done': dialogue.say(doneFor(e.id, finalChapter(state))); break;
+      case 'task-done': convo.push(...doneFor(e.id, finalChapter(state))); break;
       case 'tier-up': dialogue.say(tierLines(e.tier)); view.shake(0.5); break;
       case 'safehouse-locked':
         dialogue.say(exitLocked(state.tasks.filter((t) => t.required && !t.done).map((t) => shortName(t.id)), finalChapter(state)));
@@ -183,12 +217,12 @@ function narrate(events: readonly GameEvent[]): void {
       case 'alarm-start': hud.toast('Car alarm! Everything nearby is heading for it.'); break;
       case 'survivor-asked': {
         const v = state.survivors.find((x) => x.id === e.id);
-        if (v) dialogue.say(survivorLines(v, e.first ? 'asked' : 'reminder'));
+        if (v) { if (e.first) convo.push(...survivorLines(v, 'asked')); else dialogue.say(survivorLines(v, 'reminder')); }
         break;
       }
       case 'survivor-ready': { const v = state.survivors.find((x) => x.id === e.id); if (v) dialogue.say(survivorLines(v, 'ready')); break; }
       case 'fetched': { const v = state.survivors.find((x) => x.id === e.id); if (v) dialogue.say(survivorLines(v, 'fetched')); break; }
-      case 'survivor-done': { const v = state.survivors.find((x) => x.id === e.id); if (v) dialogue.say(survivorLines(v, 'done', e.reward)); break; }
+      case 'survivor-done': { const v = state.survivors.find((x) => x.id === e.id); if (v) convo.push(...survivorLines(v, 'done', e.reward)); break; }
       case 'gear-broken': hud.toast(`Your ${e.gear} is torn apart. Buy another at a weapon store.`); break;
       case 'chapter-cleared': hud.toast('Down the stairs, into the dark...'); break;
       case 'vehicle-wrecked': hud.toast('The engine dies. Get out!'); view.shake(0.8); break;
@@ -204,14 +238,17 @@ function narrate(events: readonly GameEvent[]): void {
       default: break;
     }
   }
+  let changed = false;
   const cur = currentTask(state)?.id ?? null;
   if (cur !== lastTaskId) {
     lastTaskId = cur;
-    if (cur) dialogue.say(briefFor(cur, finalChapter(state)));
+    changed = true;
+    if (cur) convo.push(...briefFor(cur, finalChapter(state)));
   }
   const ready = requiredDone(state);
-  if (ready && !wasReady) dialogue.say(exitOpen(finalChapter(state)));
+  if (ready && !wasReady) { convo.push(...exitOpen(finalChapter(state))); changed = true; }
   wasReady = ready;
+  openTalk(changed);
 }
 
 let last = performance.now();
@@ -225,7 +262,7 @@ function frame(now: number): void {
   last = now;
 
   const t0 = performance.now();
-  if (mode === 'play' && !paused && !upright()) {
+  if (mode === 'play' && !paused && !talk.open && !upright()) {
     acc += dt;
     let n = 0;
     while (acc >= SIM_DT && n < MAX_STEPS_PER_FRAME) {
@@ -255,6 +292,7 @@ function frame(now: number): void {
   view.cinematic += (wantCine - view.cinematic) * (1 - Math.exp(-(mode === 'intro' ? 0.25 : 1.2) * dt));
 
   dialogue.update(dt);
+  talk.update(dt);
   hud.update(state, view);
   sound.update(state, pending, dt, (x, y) => view.screenX({ x, y }));
   view.react(state, pending);
