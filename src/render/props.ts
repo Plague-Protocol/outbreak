@@ -291,7 +291,7 @@ export function pulseGlint(s: Object3D, time: number, phase: number): void {
 }
 
 /** The story items you take at an objective (keys, keycard, map, supplies). Base at y = 0. */
-export function storyItem(kind: 'key' | 'keycard' | 'map' | 'medkit' | 'fuel'): Group {
+export function storyItem(kind: 'key' | 'keycard' | 'map' | 'medkit' | 'fuel' | 'insulin' | 'fuse' | 'flare'): Group {
   const g = new Group();
   const b = new MeshBuilder();
   let glintH = 0.3;
@@ -322,6 +322,20 @@ export function storyItem(kind: 'key' | 'keycard' | 'map' | 'medkit' | 'fuel'): 
       b.box(0, 0.46, 0, 0.32, 0.06, 0.05, 0x1d1d1f);
       glintH = 0.6;
       break;
+    case 'insulin': // a cool box of insulin pens on the counter
+      b.box(0, 0.12, 0, 0.42, 0.24, 0.28, 0xeef2f4, 0xf6f8fa).box(0, 0.245, 0, 0.3, 0.01, 0.16, 0x2f6ea8);
+      for (const x of [-0.08, 0.08]) b.box(x, 0.27, 0.2, 0.05, 0.04, 0.2, 0xd8e4f0);
+      glintH = 0.55;
+      break;
+    case 'fuse': // a ceramic cartridge fuse in an open tool tray
+      b.box(0, 0.05, 0, 0.5, 0.1, 0.3, 0xb02a20, 0xc0342a);
+      b.box(0, 0.14, 0, 0.22, 0.08, 0.08, 0xeae4d8).box(-0.13, 0.14, 0, 0.04, 0.09, 0.09, 0xb8bcc2).box(0.13, 0.14, 0, 0.04, 0.09, 0.09, 0xb8bcc2);
+      glintH = 0.55;
+      break;
+    case 'flare': // a road flare lying on the tarmac, cap off
+      b.box(0, 0.04, 0, 0.42, 0.07, 0.07, 0xc8281e, 0xd8382a).box(0.23, 0.04, 0, 0.05, 0.075, 0.075, 0x2a2b2e);
+      glintH = 0.45;
+      break;
     case 'fuel': // jerrycans
       for (const [x, z] of [[0, 0], [0.62, 0.15]] as const) {
         b.box(x, 0.32, z, 0.46, 0.62, 0.22, 0xa52a1e, 0xb8352a); // body
@@ -334,6 +348,61 @@ export function storyItem(kind: 'key' | 'keycard' | 'map' | 'medkit' | 'fuel'): 
   g.add(new Mesh(b.build(), new MeshLambertMaterial({ vertexColors: true, emissive: 0x0a0a0a })));
   g.add(glint(glintH));
   return g;
+}
+
+/** A lit flare: a red-hot tip, a red glow on the ground around it. */
+export function burningFlare(): Group {
+  const g = new Group();
+  const stick = new Mesh(new MeshBuilder().box(0, 0.04, 0, 0.42, 0.07, 0.07, 0x5a1a14).build(), new MeshLambertMaterial({ vertexColors: true }));
+  const tip = new Mesh(new BoxGeometry(0.1, 0.12, 0.12), new MeshBasicMaterial({ color: 0xffd0b0 }));
+  tip.position.set(-0.23, 0.06, 0);
+  const pool = new Mesh(new PlaneGeometry(7, 7).rotateX(-Math.PI / 2),
+    new MeshBasicMaterial({ map: glowTexture(), color: 0xff3020, transparent: true, blending: AdditiveBlending, depthWrite: false }));
+  pool.position.y = 0.07;
+  pool.name = 'pool';
+  const flame = glint(0.5, 0xff5030);
+  flame.scale.setScalar(1.6);
+  flame.name = 'flame';
+  g.add(stick, tip, pool, flame);
+  return g;
+}
+
+let glowTex: CanvasTexture | null = null;
+function glowTexture(): CanvasTexture {
+  if (glowTex) return glowTex;
+  const c = document.createElement('canvas');
+  c.width = c.height = 64;
+  const x = c.getContext('2d')!;
+  const gr = x.createRadialGradient(32, 32, 0, 32, 32, 32);
+  gr.addColorStop(0, 'rgba(255,255,255,0.9)');
+  gr.addColorStop(0.4, 'rgba(255,255,255,0.35)');
+  gr.addColorStop(1, 'rgba(255,255,255,0)');
+  x.fillStyle = gr;
+  x.fillRect(0, 0, 64, 64);
+  glowTex = new CanvasTexture(c);
+  glowTex.colorSpace = SRGBColorSpace;
+  return glowTex;
+}
+
+/** A street barricade: a car on its side, doors and planks, an oil drum. Built along +x, base at 0. */
+export function barricadeMesh(): Mesh {
+  const b = new MeshBuilder()
+    .box(-1.6, 0.9, 0, 3.0, 1.8, 1.3, 0x4a4f58, 0x3c4048) // a car on its side
+    .box(-1.6, 0.9, 0.66, 2.2, 0.8, 0.02, 0x15181c)
+    .box(0.9, 0.7, 0.1, 0.12, 1.4, 1.6, 0x6a5238).box(1.3, 0.75, -0.1, 0.12, 1.5, 1.5, 0x5e4a33) // doors stood up
+    .box(0.6, 1.3, 0.2, 2.6, 0.14, 0.2, 0x7a6040).box(0.4, 0.5, 0.3, 2.8, 0.14, 0.2, 0x7a6040) // planks
+    .box(2.4, 0.55, 0.2, 0.75, 1.1, 0.75, 0x2c4a6a, 0x34587a) // oil drum
+    .box(3.3, 0.6, -0.2, 1.2, 1.2, 0.9, 0xd8dcd8, 0xe4e8e4); // a fridge
+  return new Mesh(b.build(), weather(new MeshLambertMaterial({ vertexColors: true })));
+}
+
+/** What is left once you have pulled it apart: the same junk, flat and pushed aside. */
+export function barricadeRubble(): Mesh {
+  const b = new MeshBuilder()
+    .box(-2.4, 0.65, 1.0, 3.0, 1.3, 1.8, 0x4a4f58, 0x3c4048)
+    .box(0.9, 0.08, 1.4, 1.5, 0.16, 1.4, 0x6a5238).box(0.4, 0.07, -1.2, 2.6, 0.14, 0.2, 0x7a6040)
+    .box(3.0, 0.38, 1.6, 1.1, 0.75, 0.75, 0x2c4a6a);
+  return new Mesh(b.build(), weather(new MeshLambertMaterial({ vertexColors: true })));
 }
 
 let mapTex: CanvasTexture | null = null;

@@ -6,7 +6,7 @@ import {
 import { Actor, type CharacterAssets, type ClipName } from './characters';
 import { buildCity, type CityMeshes, type LightSource } from './city';
 import { MeshBuilder } from './mesh';
-import { bottleMesh, Effects, Evac, gearMesh, glint, SubwayExit, pickupMesh, pulseGlint, storefrontMesh, storyItem, vehicleMesh, weaponMesh, wreckVehicle } from './props';
+import { barricadeMesh, barricadeRubble, bottleMesh, burningFlare, Effects, Evac, gearMesh, glint, SubwayExit, pickupMesh, pulseGlint, storefrontMesh, storyItem, vehicleMesh, weaponMesh, wreckVehicle } from './props';
 import { currentTask, finalChapter, gunStats, isGun, isRevealed, playerSpeed, playerVehicle, requiredDone, type GameState } from '../core/state';
 import { ATTACK_WINDUP, MELEE, SAFEHOUSE_RADIUS, TASK_RADIUS } from '../core/config';
 import type { GameEvent, TaskId, Vec2, WeaponKind, Zombie } from '../core/types';
@@ -47,7 +47,10 @@ export class GameView {
   private actorPool: Actor[] = [];
   private extras: Array<{ actor: Actor; task: TaskId }> = [];
   /** Objective props that change with the task: items you take vanish, the gate swings open. */
-  private taskItems: Array<{ group: Group; task: TaskId; whenDone: boolean }> = [];
+  /** Things at each step. `scenery` stays whether or not the step is up yet; `part` is a fuse to find; `burning`
+   * is the lit flare (only while it burns). */
+  private taskItems: Array<{ group: Group; task: TaskId; whenDone: boolean; scenery?: boolean; part?: number; burning?: boolean }> = [];
+  private nora: Actor | null = null;
   /** Searchable house doors (a glint until searched). */
   private houseGlints = new Map<number, Object3D>();
   /** Survivors: their character, the glint over them, and the bag they want back. */
@@ -116,9 +119,9 @@ export class GameView {
 
     // objective markers: a glowing ring on the ground and a faint shaft of light
     const ringMat = new MeshBasicMaterial({ transparent: true, blending: AdditiveBlending, depthWrite: false, opacity: 0.85 });
-    this.rings = new InstancedMesh(new RingGeometry(0.82, 1, 32).rotateX(-Math.PI / 2), ringMat, 8);
+    this.rings = new InstancedMesh(new RingGeometry(0.82, 1, 32).rotateX(-Math.PI / 2), ringMat, 16);
     const beamMat = new MeshBasicMaterial({ transparent: true, blending: AdditiveBlending, depthWrite: false, opacity: 0.18 });
-    this.beams = new InstancedMesh(new CylinderGeometry(0.5, 0.9, 14, 12, 1, true).translate(0, 7, 0), beamMat, 8);
+    this.beams = new InstancedMesh(new CylinderGeometry(0.5, 0.9, 14, 12, 1, true).translate(0, 7, 0), beamMat, 16);
     this.shadows = new InstancedMesh(
       new PlaneGeometry(1.6, 1.6).rotateX(-Math.PI / 2),
       new MeshBasicMaterial({ map: blobTexture(), transparent: true, depthWrite: false }),
@@ -249,14 +252,17 @@ export class GameView {
       a.update(at.x, at.y, Math.PI / 2 - yaw, 0.016, true);
       this.extras.push({ actor: a, task });
       this.scene.add(a.root);
+      return a;
     };
-    const add = (task: TaskId, obj: Object3D, x: number, z: number, yaw: number, whenDone = false) => {
+    const add = (task: TaskId, obj: Object3D, x: number, z: number, yaw: number, whenDone = false,
+      extra: { scenery?: boolean; part?: number; burning?: boolean; y?: number } = {}) => {
       const g = obj instanceof Group ? obj : new Group().add(obj);
-      g.position.set(x, this.groundAt(s, { x, y: z }), z);
+      g.position.set(x, extra.y ?? this.groundAt(s, { x, y: z }), z);
       g.rotation.y = yaw;
       out.add(g);
-      this.taskItems.push({ group: g, task, whenDone });
+      this.taskItems.push({ group: g, task, whenDone, scenery: extra.scenery, part: extra.part, burning: extra.burning });
     };
+    const lamp = (hex: number) => basic(new MeshBuilder().box(0, 0, 0, 0.14, 0.14, 0.14, hex));
     const basic = (mb: MeshBuilder) => new Mesh(mb.build(), new MeshBasicMaterial({ vertexColors: true }));
     for (const t of s.tasks) {
       const x = t.pos.x + 1.4, z = t.pos.y + 1.4;
@@ -301,6 +307,46 @@ export class GameView {
           b.box(x, gy + 0.5, z, 1.4, 1, 0.7, 0x3d2c22, 0x4a3628).box(x, gy + 1.12, z, 0.5, 0.25, 0.25, 0x1b1d20);
           b.box(x + 0.15, gy + 1.5, z, 0.03, 0.6, 0.03, 0x9a9da3); // aerial
           break;
+        case 'insulin': // a pharmacy fridge, glass front, and the pens in a cool box on the counter beside it
+          b.box(x, gy + 1.0, z, 1.0, 2.0, 0.8, 0xd8dcd8, 0xe4e8e4).box(x, gy + 1.1, z + 0.41, 0.8, 1.5, 0.02, 0x5f7f98);
+          b.box(x + 1.05, gy + 0.45, z, 1.0, 0.9, 0.7, 0x6a5a48, 0x7a6a58);
+          add('insulin', storyItem('insulin'), x + 1.05, z, 0.3, false, { y: gy + 0.9 });
+          break;
+        case 'deliver': { // the laundromat: machines in a row; a father kneels by his daughter
+          for (let k = 0; k < 4; k++) {
+            b.box(x - 1.6 + k * 1.0, gy + 0.45, z - 1.1, 0.9, 0.9, 0.8, 0xe8e8e2, 0xf0f0ea).box(x - 1.6 + k * 1.0, gy + 0.5, z - 0.69, 0.5, 0.5, 0.02, 0x30343a);
+          }
+          person('deliver', 'humanMaleA', 'Kneel', { x, y: z }, 0.5, false);
+          const girl = person('deliver', 'humanFemaleA', 'Idle', { x: x + 0.9, y: z + 0.2 }, -0.4, false);
+          girl.root.scale.multiplyScalar(0.7);
+          break;
+        }
+        case 'fuses': // the shutter's fuse box: red lamp until the fuses are in, then green
+          b.box(x, gy + 0.8, z, 0.9, 1.6, 0.45, 0x5a6066, 0x666c72).box(x, gy + 0.95, z + 0.235, 0.7, 1.0, 0.02, 0x40454a);
+          add('fuses', lamp(0x7a1010), x, z + 0.26, 0, false, { scenery: true, y: gy + 1.5 });
+          add('fuses', lamp(0x40ff80), x, z + 0.26, 0, true, { scenery: true, y: gy + 1.5 });
+          t.parts?.forEach((q, i) => add('fuses', storyItem('fuse'), q.x + 1.2, q.y + 1.2, i * 1.3, false, { part: i }));
+          break;
+        case 'flare': // a road flare on the crossroads; lit, it burns red
+          add('flare', storyItem('flare'), x, z, 0.5);
+          add('flare', burningFlare(), x, z, 0.5, true, { burning: true });
+          break;
+        case 'barricade': // across the street; once pulled apart, the junk lies pushed aside
+          add('barricade', barricadeMesh(), x, z, Math.PI / 4, false, { scenery: true });
+          add('barricade', barricadeRubble(), x, z, Math.PI / 4, true, { scenery: true });
+          break;
+        case 'survivor': // a crashed minibus on its side; Nora crouched in its shadow
+          b.box(x + 1.2, gy + 1.1, z + 0.6, 2.2, 2.2, 5.4, 0xc8a83a, 0xb8982f).box(x + 2.31, gy + 1.3, z + 0.6, 0.02, 0.7, 4.6, 0x15181c);
+          b.box(x + 1.2, gy + 0.2, z + 3.4, 1.6, 0.4, 0.3, 0x2a2b2e);
+          person('survivor', 'humanFemaleA', 'Kneel', { x: t.pos.x + 0.4, y: t.pos.y + 0.4 }, 2.4, false);
+          break;
+        case 'shelter': { // the church: stone door frame, a warm lit doorway, a white cross above
+          b.box(x - 1.2, gy + 1.6, z, 0.5, 3.2, 0.5, 0x8a8478, 0x9a9488).box(x + 1.2, gy + 1.6, z, 0.5, 3.2, 0.5, 0x8a8478, 0x9a9488);
+          b.box(x, gy + 3.4, z, 3.0, 0.5, 0.6, 0x8a8478, 0x9a9488);
+          add('shelter', basic(new MeshBuilder().box(0, 1.4, 0, 1.9, 2.8, 0.05, 0xffc070)), x, z - 0.05, 0, false, { scenery: true });
+          add('shelter', basic(new MeshBuilder().box(0, 4.3, 0, 0.18, 1.1, 0.12, 0xf4f0e6).box(0, 4.5, 0, 0.7, 0.18, 0.12, 0xf4f0e6)), x, z, 0, false, { scenery: true });
+          break;
+        }
         case 'fuel': add('fuel', storyItem('fuel'), x, z, 0.3); break;
         case 'medkit': add('medkit', storyItem('medkit'), x, z, -0.4); break;
         case 'rescue': person('rescue', 'humanFemaleA', 'Talk', { x, y: z }, -2.2, false); break;
@@ -508,8 +554,17 @@ export class GameView {
     for (const it of this.taskItems) {
       const t = s.tasks.find((x) => x.id === it.task);
       const done = !!t?.done;
-      // things to take only turn up once they are the objective
-      it.group.visible = it.whenDone ? done : !done && !!t && isRevealed(s, t);
+      // things to take only turn up once they are the objective; scenery is always there
+      if (it.part !== undefined) it.group.visible = !!t && !done && isRevealed(s, t) && !t.got?.[it.part];
+      else if (it.burning) {
+        it.group.visible = done && !!s.flare;
+        if (it.group.visible) {
+          const k = 0.75 + Math.sin(this.time * 23) * 0.12 + Math.sin(this.time * 7.3) * 0.13;
+          it.group.getObjectByName('pool')!.scale.setScalar(k);
+          it.group.getObjectByName('flame')!.scale.setScalar(1.3 + k * 0.5);
+        }
+      } else if (it.scenery) it.group.visible = it.whenDone ? done : !done;
+      else it.group.visible = it.whenDone ? done : !done && !!t && isRevealed(s, t);
       const gl = it.group.getObjectByName('glint');
       if (gl && it.group.visible) pulseGlint(gl, this.time, it.group.position.x * 0.13);
     }
@@ -569,9 +624,12 @@ export class GameView {
     }
     for (const e of this.extras) {
       const t = s.tasks.find((x) => x.id === e.task);
-      e.actor.root.visible = !(e.task === 'rescue' && t?.done); // the survivor locks herself in once helped
-      e.actor.update(e.actor.root.position.x, e.actor.root.position.z, Math.PI / 2 - e.actor.root.rotation.y, dt, e.task === 'rescue');
+      // the survivor locks herself in once helped; Nora comes out of hiding and follows you
+      e.actor.root.visible = !((e.task === 'rescue' || e.task === 'survivor') && t?.done);
+      const alive = e.task === 'rescue' || e.task === 'deliver' || e.task === 'survivor';
+      e.actor.update(e.actor.root.position.x, e.actor.root.position.z, Math.PI / 2 - e.actor.root.rotation.y, dt, alive);
     }
+    this.updateNora(s, dt);
     this.shadows.count = shadowN;
     this.shadows.instanceMatrix.needsUpdate = true;
 
@@ -579,6 +637,24 @@ export class GameView {
     this.updateLights();
     this.updateMarkers(s);
     this.renderer.render(this.scene, this.camera);
+  }
+
+  /** Nora, following you to the shelter (out of sight while she rides in your car). */
+  private updateNora(s: GameState, dt: number): void {
+    const e = s.escort;
+    if (!e) { if (this.nora) this.nora.root.visible = false; return; }
+    if (!this.nora) {
+      this.nora = new Actor(this.assets, 'humanFemaleA');
+      this.nora.play('Idle', { fade: 0 });
+      this.scene.add(this.nora.root);
+    }
+    const a = this.nora;
+    a.root.visible = !e.riding;
+    if (e.riding) return;
+    if (e.speed > 3.2) a.play('Jog', { timeScale: a.rateFor('Jog', e.speed), fade: 0.2 });
+    else if (e.speed > 0.2) a.play('Walk', { timeScale: a.rateFor('Walk', e.speed), fade: 0.2 });
+    else a.play('Idle', { fade: 0.3 });
+    a.update(e.pos.x, e.pos.y, e.heading, dt, true);
   }
 
   /** Protective gear shows on the player while it lasts. */
@@ -661,7 +737,8 @@ export class GameView {
 
   private updateMarkers(s: GameState): void {
     const cur = currentTask(s);
-    const n = s.tasks.length + 1;
+    const parts = cur?.parts ?? [];
+    const n = Math.min(this.rings.instanceMatrix.count, s.tasks.length + 1 + parts.length);
     this.rings.count = n;
     this.beams.count = n;
     const set = (i: number, pos: Vec2, radius: number, color: number, beam: boolean, visible: boolean) => {
@@ -681,10 +758,13 @@ export class GameView {
     };
     s.tasks.forEach((t, i) => {
       const color = t.done ? 0x000000 : t.required ? 0xf2b630 : 0x3f9be6;
-      set(i, t.pos, TASK_RADIUS, color, cur === t, !t.done && isRevealed(s, t));
+      set(i, t.pos, TASK_RADIUS, color, cur === t, !t.done && isRevealed(s, t) && (!t.got || t.got.every(Boolean)));
     });
     const open = requiredDone(s);
     set(s.tasks.length, s.safehouse, SAFEHOUSE_RADIUS, open ? 0x3ddc84 : 0xd9534f, s.safehouseKnown, s.safehouseKnown);
+    parts.forEach((q, i) => { // each fuse still to find
+      if (s.tasks.length + 1 + i < n) set(s.tasks.length + 1 + i, { x: q.x + 1.2, y: q.y + 1.2 }, 1.3, 0xf2b630, true, !cur!.got![i]);
+    });
     this.tmp.scale.set(1, 1, 1);
     for (const mesh of [this.rings, this.beams]) {
       mesh.instanceMatrix.needsUpdate = true;

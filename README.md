@@ -76,8 +76,14 @@ pixel ratio, `?lights=0..6` number of real point lights, `?zoom=N` camera span.
 
 Told the way Eko Lockdown tells its story: a title card, a letterboxed intro, "Speaker|line"
 dialogue, radio briefs as each step comes up, radio calls as the night gets worse, and endings
-(EVACUATED, TAKEN, LEFT BEHIND). Each chapter picks its steps from a seeded pool (gate key, generator
-and gate, keycard, radio frequency), always ending with the map, with optional detours that cost time. Text lives in
+(EVACUATED, TAKEN, LEFT BEHIND). Each night deals its chapters different steps from a pool of nine kinds,
+never repeating one in a night, and each chapter ends with the map. The kinds play differently: take a
+gate key or keycard from the fallen, start a generator then open the gate, tune a radio, take insulin
+from a pharmacy and bring it to a trapped girl, find three fuses scattered around a block then fit
+them in the shutter box, light a signal flare (it draws them away while it burns), pull apart a
+barricade (slow and loud: a horde comes), or find Nora in a crashed bus and get her to the church
+shelter (she follows you, rides in your car, and has to be with you at the door). Optional detours
+cost time. Text lives in
 `src/core/story.ts`. Setting and names are invented so the game reads anywhere.
 
 ## The city

@@ -80,6 +80,48 @@ const BEATS: Record<TaskId, Beat> = {
     brief: [`${RADIO}|...the helicopter only lands for people who call in first. The frequency is on a card by the counter in the corner shop...`],
     done: [`${HERO}|Evac, this is Sam. I'm on my way. Please, hold that seat.`, `${EVAC}|Copy, Sam. We see you on thermal. Move fast.`],
   },
+  insulin: {
+    objective: 'Take the insulin from the pharmacy fridge',
+    short: 'the insulin',
+    brief: [`${RADIO}|...a father on the north side, calling for anyone. His daughter is diabetic and they're trapped in a laundromat. The pharmacy two streets over had a fridge...`],
+    done: [`${HERO}|Two pens, still cold. The fridge must have run on a battery. Hang on, kid.`],
+  },
+  deliver: {
+    objective: 'Bring the insulin to the girl in the laundromat',
+    short: 'the girl',
+    brief: [`${HERO}|The laundromat. Get it to her before it warms up.`],
+    done: ['Joel|You came. You actually came. Here, sweetheart, here...', 'Joel|Listen: the main road is swarming. Keep to the side streets. God bless you.'],
+  },
+  fuses: {
+    objective: 'Find the three fuses for the shutter box',
+    short: 'the fuses',
+    brief: [`${RADIO}|The tunnel shutters run off a street fuse box, and it's been stripped. Maintenance crews left spares in their vans around the block. You'll need three.`],
+    done: [`${HERO}|Click. Click. Click. Something hums inside the wall. That's one door that'll open for me.`],
+  },
+  flare: {
+    objective: 'Light the signal flare at the crossroads',
+    short: 'the flare',
+    brief: [`${RADIO}|Rescue flights are spotting by flare tonight. Light one where they can see it from the air, then get clear. Everything nearby will go to the light.`],
+    done: [`${HERO}|Red light on every wall. They're turning toward it. Not toward me. Go, now.`],
+  },
+  barricade: {
+    objective: 'Break through the barricade',
+    short: 'the barricade',
+    brief: [`${HERO}|Somebody barricaded the street: cars, doors, a fridge. The only way through. It'll take a while, and it'll be loud.`],
+    done: [`${HERO}|It's down. And everything for three blocks heard it. Move!`],
+  },
+  survivor: {
+    objective: 'Find Nora, hiding in the crashed bus',
+    short: 'Nora',
+    brief: [`${RADIO}|...this is Nora, I'm a nurse, I'm in the crashed bus on the avenue... I can't get out on my own. Please.`],
+    done: ['Nora|You heard me? Okay. Okay. I\'ll stay right behind you. Don\'t go too fast.'],
+  },
+  shelter: {
+    objective: 'Get Nora to the church shelter (she follows you)',
+    short: 'the shelter',
+    brief: [`${HERO}|There's a shelter in the church, lights on, doors barred. Keep her close and get her there.`],
+    done: ['Nora|We made it. They have medics in here, and a radio. Thank you. Go, find your tunnel.'],
+  },
   fuel: {
     objective: 'Optional: siphon fuel from the wrecks (costs time)',
     short: 'fuel',
@@ -124,6 +166,15 @@ export function briefFor(id: TaskId, final = true): Line[] {
 export function doneFor(id: TaskId, final = true): Line[] {
   return beat(id, final).done.map(L);
 }
+
+/** The fuse step's objective changes as you find them. */
+export function partsObjective(id: TaskId, got: number, of: number): string {
+  if (id === 'fuses') return got < of ? `Find the fuses for the shutter box (${got}/${of})` : 'Fit the fuses in the shutter box';
+  return BEATS[id].objective;
+}
+
+export const PARTS_DONE: Line[] = [L(`${HERO}|That's all of them. Now the fuse box.`)];
+export const ESCORT_BEHIND: Line[] = [L(`${HERO}|Where's Nora? I can't leave her out here. Wait for her.`)];
 
 /** The card shown as each chapter begins. */
 export const CHAPTER_CARDS: ReadonlyArray<{ card: string; sub: string }> = [

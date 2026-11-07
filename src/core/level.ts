@@ -1,6 +1,6 @@
 import { chance, fork, next, pick, range, shuffle } from './rng';
 import { cellOf, distanceField, generateMap, PITCH, STREET, UNREACHABLE } from './map';
-import { generateChain } from './tasks';
+import { chapterGroups, generateChain } from './tasks';
 import {
   AMBUSH_CHANCE, AMMO_PICKUPS, BOTTLE_PICKUPS, CRATE_COUNT, GEAR_PICKUPS, HOUSE_COUNT, JERRYCAN_PICKUPS, PLAYER_SPEED, STORE_NAMES,
   SURVIVOR_COUNT, SURVIVOR_NAMES, TASK_HOLD_SECONDS, TIME_PAD, TIME_SLACK, VEHICLE_COUNT, VEHICLES,
@@ -35,8 +35,8 @@ function pavement(map: MapData, p: Vec2, side: number): Vec2 | null {
 
 const dist = (a: Vec2, b: Vec2) => Math.hypot(a.x - b.x, a.y - b.y);
 
-/** Deterministic: the same seed always yields the same Level. */
-export function generateLevel(seed: number): Level {
+/** Deterministic: the same seed (and chapter of the same night) always yields the same Level. */
+export function generateLevel(seed: number, opts: { night?: number; chapter?: number } = {}): Level {
   const map = generateMap(fork(seed, 'map').s);
   const rng = fork(seed, 'level');
 
@@ -50,16 +50,16 @@ export function generateLevel(seed: number): Level {
   const [sh0] = shuffle(rng, far);
   const safehouse = { ...(sh0 as Vec2) };
 
-  const tasks = generateChain(rng, map, spawn, safehouse);
+  const tasks = generateChain(rng, map, spawn, safehouse, chapterGroups(opts.night ?? seed, opts.chapter ?? 0));
 
-  const route = [spawn, ...tasks.filter((t) => t.required).map((t) => t.pos), safehouse];
+  const route = [spawn, ...tasks.filter((t) => t.required).flatMap((t) => [...(t.parts ?? []), t.pos]), safehouse];
   let steps = 0;
   for (let i = 0; i < route.length - 1; i++) {
     const f = distanceField(map, route[i] as Vec2);
     steps += f[cellOf(map, route[i + 1] as Vec2)] as number;
   }
-  const requiredCount = tasks.filter((t) => t.required).length;
-  const routeSeconds = steps / PLAYER_SPEED + requiredCount * TASK_HOLD_SECONDS;
+  const holding = tasks.filter((t) => t.required).reduce((a, t) => a + (t.seconds ?? TASK_HOLD_SECONDS), 0);
+  const routeSeconds = steps / PLAYER_SPEED + holding;
   const timeLimit = Math.ceil(routeSeconds * TIME_SLACK + TIME_PAD);
 
   // Drivable vehicles at kerbside spots, spread out, with one a short walk from the start.
@@ -78,7 +78,7 @@ export function generateLevel(seed: number): Level {
     return { id: i + 1, kind, pos: { x: p.x, y: p.y }, heading: p.heading, speed: 0, health: VEHICLES[kind].health, wrecked: false, tone: next(rng), fuel: 0 };
   });
 
-  const busy = [spawn, safehouse, ...tasks.map((t) => t.pos)];
+  const busy = [spawn, safehouse, ...tasks.flatMap((t) => [t.pos, ...(t.parts ?? [])])];
 
   // Weapon stores: buildings placed with the city, each entered from its door on the street.
   const stores: Store[] = map.storefronts.map((f, k) => ({ id: k + 1, name: STORE_NAMES[k % STORE_NAMES.length]!, pos: { ...f.door }, front: f }));

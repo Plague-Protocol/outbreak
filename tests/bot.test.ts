@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { createGame, currentTask, interactionFor, requiredDone, step, withVehiclesBlocked, type GameState } from '../src/core/state';
+import { createGame, currentTask, interactionFor, requiredDone, step, taskTarget, withVehiclesBlocked, type GameState } from '../src/core/state';
 import { cellOf, distanceField } from '../src/core/map';
 import { CHAPTERS } from '../src/core/config';
 import type { Input, Vec2 } from '../src/core/types';
@@ -9,11 +9,11 @@ const DT = 1 / 30;
 /** Walks the shortest street route to the current objective (no dodging). */
 export function botInput(g: GameState, field: { target: Vec2 | null; f: Int16Array | null }): Input {
   const t = currentTask(g);
-  const target = requiredDone(g) || !t ? g.safehouse : t.pos;
+  const target = requiredDone(g) || !t ? g.safehouse : taskTarget(g, t);
   const it = interactionFor(g);
   if (it?.kind === 'task' && t && it.taskId === t.id) return { dx: 0, dy: 0, action: true };
   if (g.hold.taskId) return { dx: 0, dy: 0 };
-  if (field.target !== target) { field.target = target; field.f = withVehiclesBlocked(g, () => distanceField(g.map, target)); }
+  if (!field.target || field.target.x !== target.x || field.target.y !== target.y) { field.target = target; field.f = withVehiclesBlocked(g, () => distanceField(g.map, target)); }
   const f = field.f!;
   const cols = g.map.cols;
   const c = cellOf(g.map, g.player.pos);

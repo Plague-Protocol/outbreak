@@ -46,13 +46,13 @@ describe('level generation: determinism', () => {
 });
 
 describe('level generation: task chain', () => {
-  it('has required tasks (3-4) and some optional ones that cost time', () => {
+  it('has required tasks (3-5) and some optional ones that cost time', () => {
     for (const seed of SEEDS) {
       const { tasks } = generateLevel(seed);
       const req = tasks.filter((t) => t.required);
       const opt = tasks.filter((t) => !t.required);
       expect(req.length).toBeGreaterThanOrEqual(3);
-      expect(req.length).toBeLessThanOrEqual(4);
+      expect(req.length).toBeLessThanOrEqual(5); // two kinds of step (one or two parts each), then the map
       expect(opt.length).toBeGreaterThanOrEqual(1);
       expect(opt.every((t) => t.timeCost > 0 && t.reward !== null)).toBe(true);
       expect(req.every((t) => t.timeCost === 0)).toBe(true);

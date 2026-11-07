@@ -31,10 +31,14 @@ function finalGame(seed = 1): GameState {
 
 /** Teleport to a task, press Use, and hold position until it completes. */
 function doTask(g: GameState, t: Task): void {
+  // pieces first (the fuses); anyone you are bringing along stays with you
+  t.parts?.forEach((q, i) => { if (!t.got![i]) { g.player.pos = { ...q }; step(g, IDLE, DT); } });
   g.player.pos = { ...t.pos };
   g.player.vel = { x: 0, y: 0 };
+  if (g.escort) g.escort.pos = { x: t.pos.x + 1, y: t.pos.y };
   step(g, USE, DT);
-  for (let i = 0; i < Math.ceil(TASK_HOLD_SECONDS / DT) + 2 && !t.done && g.phase === 'playing'; i++) step(g, IDLE, DT);
+  const hold = t.seconds ?? TASK_HOLD_SECONDS;
+  for (let i = 0; i < Math.ceil(hold / DT) + 2 && !t.done && g.phase === 'playing'; i++) step(g, IDLE, DT);
 }
 
 function doRequired(g: GameState): void {
@@ -642,7 +646,9 @@ describe('melee', () => {
 
 describe('safe while busy', () => {
   it('zombies hold back while you work an objective, and for a moment after', () => {
-    const g = createGame(40);
+    // a night whose first step is a plain one you stand at (no fuses to find, no long barricade)
+    let g = createGame(40);
+    for (let seed = 40; !(currentTask(g)!.seconds === undefined && !currentTask(g)!.parts); seed++) g = createGame(seed);
     const t = currentTask(g)!;
     g.player.pos = { ...t.pos };
     g.player.vel = { x: 0, y: 0 };

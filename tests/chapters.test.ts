@@ -16,15 +16,25 @@ function calm(g: GameState): GameState {
 }
 
 function doTask(g: GameState, t: Task): void {
+  // pieces first (the fuses); anyone you are bringing along stays with you
+  t.parts?.forEach((q, i) => { if (!t.got![i]) { g.player.pos = { ...q }; step(g, IDLE, DT); } });
   g.player.pos = { ...t.pos };
   g.player.vel = { x: 0, y: 0 };
+  if (g.escort) g.escort.pos = { x: t.pos.x + 1, y: t.pos.y };
   step(g, USE, DT);
-  for (let i = 0; i < Math.ceil(TASK_HOLD_SECONDS / DT) + 2 && !t.done && g.phase === 'playing'; i++) step(g, IDLE, DT);
+  const hold = t.seconds ?? TASK_HOLD_SECONDS;
+  for (let i = 0; i < Math.ceil(hold / DT) + 2 && !t.done && g.phase === 'playing'; i++) step(g, IDLE, DT);
+}
+
+/** Do the steps before this one. */
+function upTo(g: GameState, id: string): void {
+  for (let k = 0; k < 10 && currentTask(g) && currentTask(g)!.id !== id; k++) doTask(g, currentTask(g)!);
+  expect(currentTask(g)?.id).toBe(id);
 }
 
 /** Do every step in order and walk out. */
 function clear(g: GameState): void {
-  for (let t = currentTask(g); t; t = currentTask(g)) doTask(g, t);
+  for (let k = 0, t = currentTask(g); t && k < 20; t = currentTask(g), k++) doTask(g, t);
   g.player.pos = { ...g.safehouse };
   step(g, IDLE, DT);
 }
@@ -54,7 +64,7 @@ describe('objectives, one at a time', () => {
 
   it('finding the map reveals the way out', () => {
     const g = calm(createGame(8));
-    for (let t = currentTask(g); t; t = currentTask(g)) {
+    for (let k = 0, t = currentTask(g); t && k < 20; t = currentTask(g), k++) {
       expect(g.safehouseKnown).toBe(false);
       doTask(g, t);
     }
@@ -181,5 +191,90 @@ describe('protective gear', () => {
       expect(g.arsenal.gear[kind]).toBe(GEAR[kind].durability);
     }
     expect(found).toBe(true);
+  });
+});
+
+describe('different steps every chapter', () => {
+  const kinds = (g: GameState) => g.tasks.filter((t) => t.required && t.id !== 'map').map((t) => t.id);
+
+  it('no step repeats within a night, and nights differ', () => {
+    const nights = new Set<string>();
+    for (let night = 1; night <= 25; night++) {
+      const seen: string[] = [];
+      for (let c = 0; c < CHAPTERS; c++) seen.push(...kinds(createGame(chapterSeed(night, c), undefined, { night, chapter: c })));
+      expect(new Set(seen).size).toBe(seen.length);
+      nights.add(seen.join(','));
+    }
+    expect(nights.size).toBeGreaterThan(15);
+  });
+
+  /** A chapter-0 game (for some night) whose steps include this one. */
+  function withStep(id: string): GameState {
+    for (let night = 1; night < 400; night++) {
+      const g = createGame(night);
+      if (g.tasks.some((t) => t.id === id)) return calm(g);
+    }
+    throw new Error(`no night with ${id}`);
+  }
+
+  it('the fuses: find all three first, then fit them in the box', () => {
+    const g = withStep('fuses');
+    upTo(g, 'fuses');
+    const t = currentTask(g)!;
+    expect(t.parts!.length).toBe(3);
+    g.player.pos = { ...t.pos };
+    expect(interactionFor(g)?.kind).not.toBe('task'); // nothing to fit yet
+    t.parts!.forEach((q, i) => {
+      g.player.pos = { ...q };
+      step(g, IDLE, DT);
+      expect(t.got![i]).toBe(true);
+    });
+    expect(g.tasks.find((x) => x.id === 'fuses')!.got!.every(Boolean)).toBe(true);
+    doTask(g, t);
+    expect(t.done).toBe(true);
+  });
+
+  it('Nora follows you, and the shelter only takes her if she is with you', () => {
+    const g = withStep('survivor');
+    upTo(g, 'survivor');
+    doTask(g, currentTask(g)!);
+    expect(g.escort).not.toBeNull();
+    // walk a few steps: she keeps up
+    const start = { ...g.escort!.pos };
+    for (let i = 0; i < 90; i++) step(g, { dx: 1, dy: 0 }, DT);
+    expect(Math.hypot(g.escort!.pos.x - start.x, g.escort!.pos.y - start.y)).toBeGreaterThan(1);
+    // teleport to the shelter without her: not yet
+    const shelter = currentTask(g)!;
+    expect(shelter.id).toBe('shelter');
+    g.escort!.pos = { x: shelter.pos.x + 30, y: shelter.pos.y };
+    g.player.pos = { ...shelter.pos };
+    g.player.vel = { x: 0, y: 0 };
+    step(g, USE, DT);
+    expect(g.events).toContainEqual({ type: 'escort-behind' });
+    expect(g.hold.taskId).toBeNull();
+    g.escort!.pos = { x: shelter.pos.x + 1, y: shelter.pos.y };
+    doTask(g, shelter);
+    expect(shelter.done).toBe(true);
+    expect(g.escort).toBeNull();
+  });
+
+  it('a lit flare draws them away; a broken barricade brings a horde', () => {
+    const f = withStep('flare');
+    upTo(f, 'flare');
+    const flare = currentTask(f)!;
+    doTask(f, flare);
+    expect(f.flare).not.toBeNull();
+    const fresh = createGame(f.seed);
+    const z = fresh.zombies[0]!;
+    f.zombies = [{ ...z, pos: { x: flare.pos.x + 8, y: flare.pos.y }, lure: null, lureT: 0 }];
+    f.player.pos = { x: flare.pos.x + 30, y: flare.pos.y + 30 };
+    step(f, IDLE, DT);
+    expect(f.zombies[0]!.lure).toEqual(flare.pos);
+
+    const b = withStep('barricade');
+    upTo(b, 'barricade');
+    const before = b.zombies.length;
+    doTask(b, currentTask(b)!);
+    expect(b.zombies.length).toBeGreaterThan(before);
   });
 });

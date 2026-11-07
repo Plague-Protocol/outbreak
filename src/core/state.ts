@@ -12,6 +12,7 @@ import {
   JERRYCAN_FUEL, JERRYCAN_PRICE, LURE_RADIUS, LURE_SECONDS, PUMP_RATE, REFUEL_SECONDS, SEARCH_SECONDS, START_BOTTLES,
   SURVIVOR_FUNDS, TALK_SECONDS,
   CHAPTER_BONUS, CHAPTER_HEAL, CHAPTER_RUNNERS, CHAPTER_WAVES, CHAPTERS, GEAR,
+  ESCORT_NEAR, ESCORT_SPEED, FLARE_RADIUS, FLARE_SECONDS,
 } from './config';
 import { nearbyObstacles } from './collision';
 import { lineClear, resolve } from './collision';
@@ -20,7 +21,7 @@ import { cellOf, distanceField, UNREACHABLE } from './map';
 import { createRng, next, pick, range, type Rng } from './rng';
 import type {
   Alarm, House, Loot, Survivor, Thrown,
-  Crate, GameEvent, GearKind, GunKind, Input, Interaction, LossReason, MapData, MeleeKind, Phase, Pickup, Store, StoreItem, Task,
+  Crate, Escort, GameEvent, GearKind, GunKind, Input, Interaction, LossReason, MapData, MeleeKind, Phase, Pickup, Store, StoreItem, Task,
   TaskId, UpgradeKind, Vec2, Vehicle, WeaponKind, Zombie, ZombieKind,
 } from './types';
 
@@ -135,6 +136,10 @@ export interface GameState {
   tasks: Task[];
   safehouse: Vec2;
   safehouseKnown: boolean;
+  /** Someone following you to safety (Nora), once found. */
+  escort: Escort | null;
+  /** A lit signal flare: everything near it goes to it while it burns. */
+  flare: { pos: Vec2; t: number } | null;
   hold: { taskId: TaskId | null; progress: number };
   speedMul: number;
   zombieMul: number;
@@ -153,9 +158,10 @@ const approach = (v: number, target: number, step: number) => (v < target ? Math
 
 export function createGame(
   seed: number,
-  level: Level = generateLevel(seed),
+  lvl?: Level,
   opts: { night?: number; chapter?: number; carry?: Carry } = {},
 ): GameState {
+  const level = lvl ?? generateLevel(seed, { night: opts.night ?? seed, chapter: opts.chapter ?? 0 });
   const carry: Carry = opts.carry ?? {
     arsenal: {
       weapon: 'pistol', owned: ['pistol', 'baton'],
@@ -199,8 +205,13 @@ export function createGame(
     zombies: [],
     vehicles: level.vehicles.map((v) => ({ ...v, pos: { ...v.pos } })),
     crates: level.crates.map((c) => ({ ...c, pos: { ...c.pos } })),
-    tasks: level.tasks.map((t) => ({ ...t, pos: { ...t.pos }, requires: t.requires.slice() })),
+    tasks: level.tasks.map((t) => ({
+      ...t, pos: { ...t.pos }, requires: t.requires.slice(),
+      ...(t.parts ? { parts: t.parts.map((q) => ({ ...q })), got: t.got!.slice() } : {}),
+    })),
     safehouse: { ...level.safehouse },
+    escort: null,
+    flare: null,
     safehouseKnown: !level.tasks.some((t) => t.id === 'map'),
     hold: { taskId: null, progress: 0 },
     speedMul: 1,
@@ -242,6 +253,21 @@ export function chapterBonus(s: GameState): number {
 /** Start this chapter again, with what you came into it with. */
 export function restartChapter(s: GameState): GameState {
   return createGame(s.seed, undefined, { night: s.night, chapter: s.chapter, carry: s.carry });
+}
+
+/** Where to go for a step right now: the nearest piece still to find, else the step itself. */
+export function taskTarget(s: GameState, t: Task): Vec2 {
+  if (t.parts && t.got) {
+    let best: Vec2 | null = null, bd = Infinity;
+    t.parts.forEach((q, i) => { if (!t.got![i]) { const d = dist(q, s.player.pos); if (d < bd) { bd = d; best = q; } } });
+    if (best) return best;
+  }
+  return t.pos;
+}
+
+/** Pieces of a step found so far, and how many there are (null if it has none). */
+export function partsOf(t: Task): { got: number; of: number } | null {
+  return t.parts && t.got ? { got: t.got.filter(Boolean).length, of: t.parts.length } : null;
 }
 
 /** Objectives show up one at a time: done ones, optional ones, and the one you are on now. */
@@ -396,6 +422,7 @@ export function step(s: GameState, input: Input, dt: number): GameState {
     updateWeapons(s, input, dt);
     if (input.throw) throwBottle(s);
     takePickups(s);
+    takeParts(s);
   }
 
   const driving = playerVehicle(s);
@@ -416,6 +443,8 @@ export function step(s: GameState, input: Input, dt: number): GameState {
   updateThrown(s, dt);
   updateAlarms(s, dt);
   updateSurvivors(s);
+  updateEscort(s, dt);
+  updateFlare(s, dt);
   s.safeT = Math.max(0, s.safeT - dt);
   refreshFlow(s);
   updateTasks(s, dt);
@@ -442,7 +471,8 @@ export function interactionFor(s: GameState): Interaction | null {
   const v = playerVehicle(s);
   if (v) return { kind: 'exit', vehicleId: v.id };
   const p = s.player.pos;
-  const task = s.tasks.find((t) => !t.done && isRevealed(s, t) && s.hold.taskId !== t.id && dist(t.pos, p) < TASK_RADIUS);
+  const task = s.tasks.find((t) => !t.done && isRevealed(s, t) && s.hold.taskId !== t.id && dist(t.pos, p) < TASK_RADIUS
+    && (!t.got || t.got.every(Boolean)));
   if (task) return { kind: 'task', taskId: task.id };
   const store = s.stores.find((st) => dist(st.pos, p) < USE_RADIUS);
   if (store) return { kind: 'store', storeId: store.id };
@@ -491,6 +521,10 @@ function interact(s: GameState): void {
       const t = s.tasks.find((x) => x.id === it.taskId)!;
       if (!depsMet(s, t)) {
         s.events.push({ type: 'task-locked', id: t.id, needs: t.requires.filter((id) => !s.tasks.some((x) => x.id === id && x.done)) });
+        return;
+      }
+      if (t.id === 'shelter' && (!s.escort || dist(s.escort.pos, s.player.pos) > ESCORT_NEAR)) {
+        s.events.push({ type: 'escort-behind' }); // she has to be with you
         return;
       }
       s.work = null;
@@ -1201,7 +1235,7 @@ function updateTasks(s: GameState, dt: number): void {
     s.hold.progress = 0;
     return;
   }
-  s.hold.progress += dt / TASK_HOLD_SECONDS;
+  s.hold.progress += dt / (t.seconds ?? TASK_HOLD_SECONDS);
   if (s.hold.progress < 1) return;
 
   t.done = true;
@@ -1210,6 +1244,7 @@ function updateTasks(s: GameState, dt: number): void {
   s.safeT = SAFE_AFTER;
   s.events.push({ type: 'task-done', id: t.id });
   if (t.id === 'map') s.safehouseKnown = true;
+  stepDone(s, t);
   if (t.timeCost > 0) {
     s.remaining -= t.timeCost;
     s.events.push({ type: 'time-penalty', seconds: t.timeCost });
@@ -1218,6 +1253,86 @@ function updateTasks(s: GameState, dt: number): void {
   if (t.reward === 'speed') s.speedMul = SPEED_BOOST;
   else if (t.reward === 'calm') s.zombieMul = CALM_FACTOR;
   else if (t.reward === 'funds') s.funds += 50;
+}
+
+/** What finishing each kind of step does to the night. */
+function stepDone(s: GameState, t: Task): void {
+  switch (t.id) {
+    case 'survivor': // Nora comes out of the bus and follows you
+      s.escort = { pos: { x: t.pos.x + 1, y: t.pos.y + 1 }, heading: 0, speed: 0, riding: false };
+      break;
+    case 'shelter': // she is inside, safe
+      s.escort = null;
+      break;
+    case 'flare':
+      s.flare = { pos: { ...t.pos }, t: FLARE_SECONDS };
+      s.events.push({ type: 'flare-lit', pos: { ...t.pos } });
+      lure(s, t.pos, FLARE_RADIUS, 3);
+      break;
+    case 'barricade': // the noise brings them
+      s.events.push({ type: 'horde', pos: { ...t.pos } });
+      spawnWave(s, Math.max(1, s.tier));
+      break;
+    default: break;
+  }
+}
+
+/** Walk over a piece of the current step (a fuse) to take it. */
+function takeParts(s: GameState): void {
+  const t = currentTask(s);
+  if (!t?.parts || !t.got) return;
+  t.parts.forEach((q, i) => {
+    if (t.got![i] || dist(q, s.player.pos) > PICKUP_RADIUS + 0.4) return;
+    t.got![i] = true;
+    const n = partsOf(t)!;
+    s.events.push({ type: 'part-taken', id: t.id, got: n.got, of: n.of });
+  });
+}
+
+/** Nora follows you through the streets (the same way they do), and rides along in a car. */
+function updateEscort(s: GameState, dt: number): void {
+  const e = s.escort;
+  if (!e) return;
+  const car = playerVehicle(s);
+  if (car) { e.riding = true; e.pos = { ...car.pos }; e.speed = 0; return; }
+  if (e.riding) { e.riding = false; e.pos = { x: s.player.pos.x + 1, y: s.player.pos.y }; }
+  const p = s.player.pos;
+  const dx = p.x - e.pos.x, dy = p.y - e.pos.y, d = Math.hypot(dx, dy);
+  let vx = 0, vy = 0;
+  if (d > 2.2) {
+    if (d < 3 || lineClear(s.map, e.pos, p, PLAYER_RADIUS)) { vx = dx / d; vy = dy / d; }
+    else {
+      const cols = s.map.cols, c = cellOf(s.map, e.pos);
+      let best = s.flow[c] as number, bc = -1;
+      for (const n of [c - 1, c + 1, c - cols, c + cols]) {
+        if (n < 0 || n >= s.flow.length) continue;
+        if ((s.flow[n] as number) < best) { best = s.flow[n] as number; bc = n; }
+      }
+      if (bc >= 0 && best !== UNREACHABLE) {
+        const tx = (bc % cols) + 0.5 - e.pos.x, ty = Math.floor(bc / cols) + 0.5 - e.pos.y, tl = Math.hypot(tx, ty) || 1;
+        vx = tx / tl; vy = ty / tl;
+      }
+    }
+  }
+  // left far behind (you drove off and got out somewhere else): she catches up the back way
+  if (d > 45) { e.pos = { x: p.x - Math.cos(s.player.heading) * 2, y: p.y - Math.sin(s.player.heading) * 2 }; resolve(s.map, e.pos, PLAYER_RADIUS); }
+  const before = { ...e.pos };
+  const v = ESCORT_SPEED * (d > 8 ? 1.15 : 1);
+  e.pos.x += vx * v * dt;
+  e.pos.y += vy * v * dt;
+  resolve(s.map, e.pos, PLAYER_RADIUS);
+  for (const c of s.vehicles) pushOutOfVehicle(c, e.pos, PLAYER_RADIUS);
+  e.speed = dt > 0 ? Math.hypot(e.pos.x - before.x, e.pos.y - before.y) / dt : 0;
+  if (vx !== 0 || vy !== 0) e.heading = Math.atan2(vy, vx);
+}
+
+/** A burning flare keeps pulling everything near it. */
+function updateFlare(s: GameState, dt: number): void {
+  const f = s.flare;
+  if (!f) return;
+  f.t -= dt;
+  if (f.t <= 0) { s.flare = null; return; }
+  lure(s, f.pos, FLARE_RADIUS, 1);
 }
 
 function updateSafehouse(s: GameState): void {

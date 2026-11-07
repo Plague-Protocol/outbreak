@@ -1,5 +1,5 @@
-import { currentTask, finalChapter, interactionFor, isGun, playerVehicle, requiredDone, type GameState } from '../core/state';
-import { ending, exitLabel, objectiveFor, shortName } from '../core/story';
+import { currentTask, finalChapter, interactionFor, isGun, partsOf, playerVehicle, requiredDone, taskTarget, type GameState } from '../core/state';
+import { ending, exitLabel, objectiveFor, partsObjective, shortName } from '../core/story';
 import { CHAPTERS, GEAR, PLAYER_HEALTH, VEHICLES, WEAPON_NAMES } from '../core/config';
 import type { Interaction, TaskId } from '../core/types';
 import type { GameView } from '../render/view';
@@ -13,6 +13,7 @@ const fmt = (s: number) => {
 
 const TASK_VERB: Record<TaskId, string> = {
   map: 'TAKE MAP', key: 'TAKE KEY', power: 'START', gate: 'OPEN', keycard: 'TAKE CARD', radio: 'TUNE IN',
+  insulin: 'TAKE', deliver: 'GIVE', fuses: 'FIT FUSES', flare: 'LIGHT', barricade: 'BREAK', survivor: 'TALK', shelter: 'GO IN',
   fuel: 'SIPHON', medkit: 'GATHER', rescue: 'HELP',
 };
 
@@ -114,7 +115,8 @@ export class Hud {
     if (clock !== this.lastClock) { this.lastClock = clock; this.clockLabel.textContent = clock; }
     const cur = currentTask(s);
     const ready = requiredDone(s);
-    const label = ready ? exitLabel(final) : cur ? objectiveFor(cur.id, final) : 'Find another way through';
+    const parts = cur ? partsOf(cur) : null;
+    const label = ready ? exitLabel(final) : cur ? (parts ? partsObjective(cur.id, parts.got, parts.of) : objectiveFor(cur.id, final)) : 'Find another way through';
     const optional = s.tasks.filter((x) => !x.required && !x.done);
     const html = `${label}${!ready && optional.length ? `<small>Optional, costs time: ${optional.map((o) => shortName(o.id)).join(', ')}</small>` : ''}`;
     if (html !== this.lastTask) {
@@ -155,7 +157,7 @@ export class Hud {
     if (use && this.useBtn.textContent !== use) this.useBtn.textContent = use;
 
     // compass arrow to the current objective when it is off screen
-    const target = ready ? (s.safehouseKnown ? s.safehouse : null) : cur?.pos ?? null;
+    const target = ready ? (s.safehouseKnown ? s.safehouse : null) : cur ? taskTarget(s, cur) : null;
     if (target && s.phase === 'playing' && !view.onScreen(target)) {
       const ang = view.screenAngle(s.player.pos, target);
       this.arrow.style.display = 'block';

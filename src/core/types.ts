@@ -79,6 +79,7 @@ export interface MapData {
 
 export type TaskId =
   | 'map' | 'key' | 'power' | 'gate' | 'keycard' | 'radio'
+  | 'insulin' | 'deliver' | 'fuses' | 'flare' | 'barricade' | 'survivor' | 'shelter'
   | 'fuel' | 'medkit' | 'rescue';
 
 export type Reward = 'speed' | 'calm' | 'funds';
@@ -93,6 +94,19 @@ export interface Task {
   timeCost: number; // seconds removed from the clock on completion (optional tasks)
   reward: Reward | null;
   done: boolean;
+  /** Pieces to find first, scattered nearby (the fuses); the task itself is fitting them at `pos`. */
+  parts?: Vec2[];
+  got?: boolean[];
+  /** How long it takes, standing at it (default TASK_HOLD_SECONDS). */
+  seconds?: number;
+}
+
+/** Someone you are taking somewhere: they follow you (and ride along in a car). */
+export interface Escort {
+  pos: Vec2;
+  heading: number;
+  speed: number;
+  riding: boolean;
 }
 
 export type ZombieKind = 'walker' | 'runner';
@@ -273,6 +287,10 @@ export type GameEvent =
   | { type: 'gear-hit'; gear: GearKind; absorbed: number }
   | { type: 'gear-broken'; gear: GearKind }
   | { type: 'chapter-cleared'; chapter: number }
+  | { type: 'part-taken'; id: TaskId; got: number; of: number }
+  | { type: 'escort-behind' }
+  | { type: 'flare-lit'; pos: Vec2 }
+  | { type: 'horde'; pos: Vec2 }
   | { type: 'won' }
   | { type: 'lost'; reason: LossReason };
 

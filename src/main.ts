@@ -1,9 +1,10 @@
 import {
-  chapterBonus, createGame, currentTask, finalChapter, nextChapter, requiredDone, restartChapter, step, type GameState,
+  chapterBonus, createGame, currentTask, finalChapter, nextChapter, partsOf, requiredDone, restartChapter, step, taskTarget,
+  type GameState,
 } from './core/state';
 import {
-  briefFor, chapterCard, chapterLines, doneFor, exitLabel, exitLocked, exitOpen, INTRO, lockedTask, objectiveFor, shortName,
-  survivorLines, tierLines, type Line,
+  briefFor, chapterCard, chapterLines, doneFor, ESCORT_BEHIND, exitLabel, exitLocked, exitOpen, INTRO, lockedTask, objectiveFor,
+  PARTS_DONE, partsObjective, shortName, survivorLines, tierLines, type Line,
 } from './core/story';
 import type { GameEvent, TaskId } from './core/types';
 import { GameView } from './render/view';
@@ -121,8 +122,9 @@ function nextUp(): NextUp | null {
   const final = finalChapter(state);
   const cur = currentTask(state);
   const ready = requiredDone(state);
-  const target = ready ? (state.safehouseKnown ? state.safehouse : null) : cur?.pos ?? null;
-  const title = ready ? exitLabel(final) : cur ? objectiveFor(cur.id, final) : null;
+  const target = ready ? (state.safehouseKnown ? state.safehouse : null) : cur ? taskTarget(state, cur) : null;
+  const parts = cur ? partsOf(cur) : null;
+  const title = ready ? exitLabel(final) : cur ? (parts ? partsObjective(cur.id, parts.got, parts.of) : objectiveFor(cur.id, final)) : null;
   if (!title) return null;
   const m = target ? Math.round(Math.hypot(target.x - state.player.pos.x, target.y - state.player.pos.y) * 0.63) : null;
   return { title, detail: m !== null ? `${m} m away. Follow the yellow arrow and the ring on your map.` : 'Look around.' };
@@ -174,8 +176,16 @@ function finish(): void {
 
 /** Story beats driven by what happened this frame. */
 function narrate(events: readonly GameEvent[]): void {
+  let forceNext = false;
   for (const e of events) {
     switch (e.type) {
+      case 'part-taken':
+        hud.toast(`Fuse ${e.got} of ${e.of}`);
+        if (e.got === e.of) { convo.push(...PARTS_DONE); forceNext = true; }
+        break;
+      case 'escort-behind': dialogue.say(ESCORT_BEHIND); break;
+      case 'flare-lit': hud.toast('The flare is pulling them in. Keep away from it.'); break;
+      case 'horde': hud.toast('They heard that. Here they come!'); view.shake(0.6); break;
       case 'task-done': convo.push(...doneFor(e.id, finalChapter(state))); break;
       case 'tier-up': dialogue.say(tierLines(e.tier)); view.shake(0.5); break;
       case 'safehouse-locked':
@@ -238,7 +248,7 @@ function narrate(events: readonly GameEvent[]): void {
       default: break;
     }
   }
-  let changed = false;
+  let changed = forceNext;
   const cur = currentTask(state)?.id ?? null;
   if (cur !== lastTaskId) {
     lastTaskId = cur;

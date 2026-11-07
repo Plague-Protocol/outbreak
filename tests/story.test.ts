@@ -3,7 +3,10 @@ import { briefFor, doneFor, ending, INTRO, objectiveFor, tierLines } from '../sr
 import { generateLevel } from '../src/core/level';
 import type { TaskId } from '../src/core/types';
 
-const ALL: TaskId[] = ['map', 'key', 'power', 'gate', 'keycard', 'radio', 'fuel', 'medkit', 'rescue'];
+const ALL: TaskId[] = [
+  'map', 'key', 'power', 'gate', 'keycard', 'radio', 'insulin', 'deliver', 'fuses', 'flare', 'barricade', 'survivor', 'shelter',
+  'fuel', 'medkit', 'rescue',
+];
 
 describe('story', () => {
   it('every task that the generator can pick has an objective and a completion line', () => {
