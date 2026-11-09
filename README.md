@@ -141,6 +141,17 @@ onto the Kenney skeleton and measures each walk/run cycle's ground speed so feet
 poses play on the upper body only, over whatever the legs are doing. Credits:
 `public/assets/characters/CREDITS.md`. Preview clips at `/tools/preview.html` under `npm run dev`.
 
+## Vehicles and weapons
+
+Our own models, drawn in code by `tools/build-models.mjs` (side profiles extruded with rounded
+edges, turned wheels and bats) into `public/assets/models/models.glb`: sedan, pickup, van, a
+motorbike (not ridable yet), pistol, shotgun, rifle, baton, bat and machete. Each is one
+vertex-coloured mesh (one draw call; vehicles add one for their lights). Parts in the marker colour
+(magenta) take a **finish** at load: a car's paint, a gun's furniture. That is the hook for personal
+assets: same model, the owner's finish (`modelGeometry(name, finish)` in `src/render/models.ts`).
+Rebuild with `node tools/build-models.mjs public/assets/models/models.glb`; look at them (with a
+colour picker) at `/tools/models.html` under `npm run dev`.
+
 ## Performance budget
 
 | | Budget | Measured (worst case: 18 zombies around the player) |
@@ -149,10 +160,18 @@ poses play on the upper body only, over whatever the legs are doing. Credits:
 | Triangles | <= 50,000 | ~34,500-41,700 (the debris of the abandoned city adds a few thousand) |
 | Real lights | small | hemisphere + moon + flashlight/headlights + fill + 3 pooled + muzzle flash |
 | Zombie characters drawn | 12 nearest | the rest are simulated or dormant, not drawn |
-| JS bundle (gzip) | <= 220 KB | 219.9 KB at start (puzzle pages, 1.9 KB, load when first needed; task content 6 KB of JSON) |
+| JS bundle (gzip) | <= 220 KB | 218.4 KB at start (puzzle pages, 1.9 KB, load when first needed; task content 6 KB of JSON) |
 | Character assets (gzip) | <= 450 KB | ~426 KB (GLB 282 KB + 4 skins 144 KB) |
+| Vehicle and weapon models (gzip) | <= 150 KB | 132 KB (622 KB raw); ~2,300 triangles a car, 500-1,200 a weapon |
 
 The worst case was measured at a store's door with 18 zombies around, on three nights; the
 busiest downtown spot reached 36 calls. Measured with `?debug` (`renderer.info`) in headless desktop Chrome with software rendering, so
 the frame rates it shows mean nothing for a phone. **Not yet measured on a real Android phone.**
 The levers there: `?lights=0`, `?dpr=1`, fewer zombie characters drawn.
+
+Phones get warm because the GPU draws the whole 3D scene every frame; it has nothing to do with
+there being no backend (a server would not take any of that drawing away). So: phones draw at 1.5x
+pixel density, not 2x (about half the pixels on a 3x screen); a held story moment or the store
+redraws 20 times a second, the title 30; the minimap redraws 20 times a second. **Saver** (in the
+HUD, remembered) runs the game at 30 frames a second at 1.25x. Cars are now ~2,300 triangles, so
+a street with several in view costs more than before: re-measure the worst case.

@@ -97,9 +97,8 @@ export class GameView {
   cinematic = 1;
 
   constructor(private container: HTMLElement, private assets: CharacterAssets) {
-    const dprCap = Number(params.get('dpr')) || 2;
     this.renderer = new WebGLRenderer({ antialias: false, stencil: true, powerPreference: 'high-performance' });
-    this.renderer.setPixelRatio(Math.min(window.devicePixelRatio, dprCap));
+    this.setSaver(false);
     this.renderer.setClearColor(FOG);
     container.appendChild(this.renderer.domElement);
     this.scene.fog = new Fog(FOG, 30, 80);
@@ -142,6 +141,17 @@ export class GameView {
     window.visualViewport?.addEventListener('resize', again);
     if ('ResizeObserver' in window) new ResizeObserver(() => this.resize()).observe(this.container);
     this.resize();
+  }
+
+  /**
+   * Pixels drawn: phones (3x screens) at 1.5x rather than 2x is about half the fill work for a
+   * small difference at arm's length; battery saver goes to 1.25x. `?dpr=` overrides.
+   */
+  setSaver(saver: boolean): void {
+    const phone = window.matchMedia?.('(pointer: coarse)').matches;
+    const cap = Number(params.get('dpr')) || (saver ? 1.25 : phone ? 1.5 : 2);
+    this.renderer.setPixelRatio(Math.min(window.devicePixelRatio, cap));
+    if (this.size.w) { this.size = { w: 0, h: 0 }; this.resize(); }
   }
 
   private resize(): void {

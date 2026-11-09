@@ -62,6 +62,11 @@ $('mute').addEventListener('click', () => {
   sound.setMuted(!sound.muted);
   $('mute').textContent = `Sound: ${sound.muted ? 'off' : 'on'}`;
 });
+// Battery saver: 30 frames a second and fewer pixels, for a phone that runs warm. Remembered.
+let saver = localStorage.getItem('outbreak.saver') === '1';
+const showSaver = () => { $('saver').textContent = `Saver: ${saver ? 'on' : 'off'}`; view.setSaver(saver); };
+$('saver').addEventListener('click', () => { saver = !saver; localStorage.setItem('outbreak.saver', saver ? '1' : '0'); showSaver(); });
+showSaver();
 
 startBtn.disabled = false;
 startBtn.textContent = 'Begin';
@@ -296,7 +301,15 @@ const pending: GameEvent[] = [];
 let frames = 0, fpsT = 0, fps = 0, stepMs = 0, renderMs = 0;
 const debugEl = $('debug');
 
+let miniTick = 0;
+
 function frame(now: number): void {
+  // Draw only as often as it is worth: a held story moment or the store is still (20/s), the title
+  // and battery saver are fine at 30/s; play runs at the screen's rate. The sim's fixed step does
+  // not care: it catches up on the time between frames.
+  const still = (paused && !cityMap.open) || talk.open;
+  const gap = still ? 48 : saver || mode === 'title' ? 31 : 0;
+  if (gap && now - last < gap) { requestAnimationFrame(frame); return; }
   const dt = Math.min(0.1, (now - last) / 1000);
   last = now;
 
@@ -336,7 +349,7 @@ function frame(now: number): void {
   sound.update(state, pending, dt, (x, y) => view.screenX({ x, y }));
   view.react(state, pending);
   pending.length = 0;
-  if (mode === 'play') cityMap.drawMini(state);
+  if (mode === 'play' && (still || miniTick++ % 3 === 0)) cityMap.drawMini(state); // the minimap at 20/s is plenty
   cityMap.drawFull(state);
 
   const t1 = performance.now();
