@@ -10,6 +10,7 @@ import type { GameEvent, Task, TaskId } from './core/types';
 import { setContent, stepDef, type Content } from './core/content';
 import { GameView } from './render/view';
 import { loadCharacterAssets } from './render/characters';
+import { loadModels } from './render/models';
 import { Controls } from './input/controls';
 import { Hud } from './ui/hud';
 import { Dialogue } from './ui/dialogue';
@@ -39,7 +40,7 @@ let wasReady = false;
 
 const $ = (id: string) => document.getElementById(id)!;
 const startBtn = $('start') as HTMLButtonElement;
-const assets = await loadCharacterAssets().catch((e) => { startBtn.textContent = `Failed to load: ${e}`; throw e; });
+const [assets] = await Promise.all([loadCharacterAssets(), loadModels()]).catch((e) => { startBtn.textContent = `Failed to load: ${e}`; throw e; });
 
 const view = new GameView($('game'), assets);
 const controls = new Controls($('game'), $('stick'), $('knob'));

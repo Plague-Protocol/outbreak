@@ -6,149 +6,42 @@ import {
 import { MeshBuilder } from './mesh';
 import { weather } from './weather';
 import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
-import { VEHICLES } from '../core/config';
-import type { GearKind, GunKind, MeleeKind, PickupKind, Store, Vehicle, VehicleKind, WeaponKind } from '../core/types';
+import { modelGeometry, modelLights, modelMuzzle } from './models';
+import type { GearKind, PickupKind, Store, Vehicle, WeaponKind } from '../core/types';
 
 const PAINT = [0xd9d4c7, 0x9aa1a8, 0x7a1f1f, 0x1f3a5c, 0x1b1d20, 0x2f4a33, 0xc9a227, 0x5a2a5a];
 
-/** A drivable vehicle, built along +x (nose) and centred on its footprint. */
+const vehicleMat = weather(new MeshLambertMaterial({ vertexColors: true }));
+const wreckMat = weather(new MeshLambertMaterial({ vertexColors: true, color: 0x3a3230 }));
+const lightMat = new MeshBasicMaterial({ vertexColors: true });
+
+/** A drivable vehicle, built along +x (nose) and centred on its footprint, in its own paint. */
 export function vehicleMesh(v: Vehicle): Group {
-  const spec = VEHICLES[v.kind];
-  const L = spec.length, W = spec.width;
-  const paint = PAINT[Math.floor(v.tone * PAINT.length)]!;
-  const roof = new Color(paint).offsetHSL(0, 0, 0.06).getHex();
-  const glass = 0x0e1318;
-  const b = new MeshBuilder();
-  const g = new MeshBuilder();
-  const shape: Record<VehicleKind, () => void> = {
-    sedan: () => {
-      b.box(0, 0.75, 0, L, 0.9, W, paint, roof);
-      b.box(-L * 0.05, 1.5, 0, L * 0.48, 0.62, W * 0.88, glass, paint);
-    },
-    pickup: () => {
-      b.box(0, 0.8, 0, L, 1.0, W, paint, roof);
-      b.box(L * 0.12, 1.65, 0, L * 0.34, 0.75, W * 0.9, glass, paint);
-      b.box(-L * 0.3, 1.35, W * 0.45, L * 0.38, 0.35, 0.1, paint); // bed sides
-      b.box(-L * 0.3, 1.35, -W * 0.45, L * 0.38, 0.35, 0.1, paint);
-    },
-    van: () => {
-      b.box(0, 1.35, 0, L, 2.1, W, paint, roof);
-      b.facade('x+', L / 2 + 0.02, -W * 0.42, W * 0.42, 1.5, 2.2, glass);
-      b.facade('z+', W / 2 + 0.02, L * 0.15, L * 0.42, 1.6, 2.2, glass);
-      b.facade('z-', -W / 2 - 0.02, L * 0.15, L * 0.42, 1.6, 2.2, glass);
-    },
-  };
-  shape[v.kind]();
-  for (const sx of [-1, 1]) for (const sz of [-1, 1]) b.box(sx * L * 0.32, 0.38, sz * W * 0.46, 0.8, 0.76, 0.28, 0x0b0b0c);
-  g.facade('x+', L / 2 + 0.03, -W * 0.42, -W * 0.22, 0.7, 0.95, 0xfff3d0); // headlights
-  g.facade('x+', L / 2 + 0.03, W * 0.22, W * 0.42, 0.7, 0.95, 0xfff3d0);
-  g.facade('x-', -L / 2 - 0.03, -W * 0.42, -W * 0.25, 0.75, 0.95, 0xb01818); // tail lights
-  g.facade('x-', -L / 2 - 0.03, W * 0.25, W * 0.42, 0.75, 0.95, 0xb01818);
   const group = new Group();
-  const body = new Mesh(b.build(), weather(new MeshLambertMaterial({ vertexColors: true })));
+  const body = new Mesh(modelGeometry(v.kind, PAINT[Math.floor(v.tone * PAINT.length)]!), vehicleMat);
   body.name = 'body';
-  const lights = new Mesh(g.build(), new MeshBasicMaterial({ vertexColors: true }));
+  const lights = new Mesh(modelLights(v.kind), lightMat);
   lights.name = 'lights';
   group.add(body, lights);
   return group;
 }
 
 export function wreckVehicle(group: Group): void {
-  const body = group.getObjectByName('body') as Mesh;
-  (body.material as MeshLambertMaterial).color.setHex(0x2a2522);
+  (group.getObjectByName('body') as Mesh).material = wreckMat;
   group.getObjectByName('lights')!.visible = false;
 }
 
-// Gun colours: lit gunmetal (pure black vanishes at night), polymer, and wood furniture.
-const STEEL = 0x4a4f57, STEEL_TOP = 0x6a7079, POLY = 0x2c2d30, WOOD = 0x7a4a26, WOOD_TOP = 0x8f5a2f;
+const weaponMat = new MeshLambertMaterial({ vertexColors: true, emissive: 0x0b0b0c });
 
 /**
- * Guns in world units (about 1.3x real size so they read from the street camera), built with the
- * barrel along +x, the top along +y, and the middle of the grip at the origin so the hand holds it.
- * `userData.muzzle` is the muzzle point in the same space.
+ * A weapon ready to put in a hand, about 1.3x real size so it reads from the street camera. Guns have
+ * the barrel along +x and the middle of the grip at the origin, `userData.muzzle` the muzzle point;
+ * melee weapons point along +y (out of the thumb side of the fist).
  */
-export function gunMesh(kind: GunKind): Mesh {
-  const b = new MeshBuilder();
-  let muzzle: Vector3;
-  let m: number;
-  switch (kind) {
-    case 'pistol':
-      b.box(0.12, 0.13, 0, 0.36, 0.085, 0.055, STEEL, STEEL_TOP); // slide
-      b.box(0.1, 0.075, 0, 0.3, 0.05, 0.05, POLY); // frame
-      b.box(0.29, 0.13, 0, 0.02, 0.03, 0.03, 0x111111); // muzzle
-      b.box(0.08, 0.025, 0, 0.09, 0.02, 0.04, POLY); // trigger guard
-      m = b.mark();
-      b.box(0, 0, 0, 0.085, 0.19, 0.06, POLY); // grip, raked back
-      b.tiltZ(m, 0.28, 0, 0.06);
-      muzzle = new Vector3(0.31, 0.13, 0);
-      break;
-    case 'shotgun':
-      b.box(0.08, 0.1, 0, 0.36, 0.13, 0.075, STEEL, STEEL_TOP); // receiver
-      b.box(0.68, 0.14, 0, 0.84, 0.055, 0.055, STEEL, STEEL_TOP); // barrel
-      b.box(0.55, 0.075, 0, 0.6, 0.05, 0.05, STEEL); // magazine tube
-      b.box(0.6, 0.075, 0, 0.32, 0.085, 0.085, WOOD, WOOD_TOP); // pump
-      m = b.mark();
-      b.box(-0.38, 0.03, 0, 0.62, 0.14, 0.07, WOOD, WOOD_TOP); // stock
-      b.tiltZ(m, -0.12, -0.08, 0.06);
-      m = b.mark();
-      b.box(-0.02, 0, 0, 0.08, 0.16, 0.065, WOOD); // wrist
-      b.tiltZ(m, 0.35, 0, 0.06);
-      muzzle = new Vector3(1.1, 0.14, 0);
-      break;
-    case 'rifle':
-      b.box(0.15, 0.1, 0, 0.62, 0.14, 0.08, STEEL, STEEL_TOP); // receiver
-      b.box(0.6, 0.085, 0, 0.36, 0.11, 0.09, WOOD, WOOD_TOP); // handguard
-      b.box(0.62, 0.17, 0, 0.4, 0.035, 0.035, STEEL); // gas tube
-      b.box(0.92, 0.11, 0, 0.36, 0.04, 0.04, STEEL); // barrel
-      b.box(1.06, 0.15, 0, 0.03, 0.08, 0.02, STEEL); // front sight
-      b.box(0.3, 0.19, 0, 0.06, 0.04, 0.03, STEEL); // rear sight
-      m = b.mark();
-      b.box(0.3, -0.07, 0, 0.09, 0.26, 0.06, 0x2a2b2e); // curved magazine
-      b.tiltZ(m, 0.38, 0.3, 0.05);
-      m = b.mark();
-      b.box(-0.42, 0.06, 0, 0.5, 0.13, 0.07, WOOD, WOOD_TOP); // stock
-      b.tiltZ(m, -0.1, -0.16, 0.08);
-      m = b.mark();
-      b.box(0, 0, 0, 0.075, 0.17, 0.06, POLY); // pistol grip
-      b.tiltZ(m, 0.3, 0, 0.05);
-      muzzle = new Vector3(1.11, 0.11, 0);
-      break;
-  }
-  const mesh = new Mesh(b.build(), new MeshLambertMaterial({ vertexColors: true, emissive: 0x0b0b0c }));
-  mesh.userData.muzzle = muzzle;
+export function weaponMesh(kind: WeaponKind, finish?: number): Mesh {
+  const mesh = new Mesh(modelGeometry(kind, finish), weaponMat);
+  mesh.userData.muzzle = modelMuzzle(kind);
   return mesh;
-}
-
-/**
- * Melee weapons, about 1.3x real size, built along +y (out of the thumb side of the fist) with the
- * grip at the origin: held by the same hand frame as the guns.
- */
-export function meleeMesh(kind: MeleeKind): Mesh {
-  const b = new MeshBuilder();
-  switch (kind) {
-    case 'baton': // a side-handle police baton
-      b.box(0, 0.42, 0, 0.07, 1.08, 0.07, 0x3a3b3f, 0x4a4b50);
-      b.box(0.11, 0.08, 0, 0.16, 0.06, 0.06, 0x3a3b3f);
-      break;
-    case 'bat': // tapered ash bat with a knob
-      b.box(0, -0.13, 0, 0.09, 0.04, 0.09, 0xb08a58);
-      b.box(0, 0.2, 0, 0.055, 0.62, 0.055, 0xc8a26a);
-      b.box(0, 0.7, 0, 0.08, 0.4, 0.08, 0xc8a26a);
-      b.box(0, 1.1, 0, 0.11, 0.42, 0.11, 0xd2ae78, 0xd8b682);
-      break;
-    case 'machete': // black grip, steel blade with a darker spine
-      b.box(0, 0.04, 0, 0.065, 0.34, 0.06, 0x1d1d1f);
-      b.box(0, 0.23, 0, 0.12, 0.03, 0.08, 0x2a2b2e);
-      b.box(0.015, 0.66, 0, 0.13, 0.84, 0.018, 0xc3c7cd, 0xd5d9de);
-      b.box(-0.045, 0.62, 0, 0.03, 0.76, 0.024, 0x6a6f76);
-      break;
-  }
-  return new Mesh(b.build(), new MeshLambertMaterial({ vertexColors: true, emissive: 0x0b0b0c }));
-}
-
-/** Whatever weapon it is, ready to put in a hand. */
-export function weaponMesh(kind: WeaponKind): Mesh {
-  return kind === 'baton' || kind === 'bat' || kind === 'machete' ? meleeMesh(kind) : gunMesh(kind);
 }
 
 /** A green ammo can with a carry handle and a brass stencil. */
