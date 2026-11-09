@@ -102,7 +102,7 @@ export interface Task {
   /** Whoever you are escorting has to be with you. */
   needsEscort?: boolean;
   /** Who comes with you once this is done (escort-start). */
-  escort?: { name: string; skin: Skin; scale: number };
+  escort?: { name: string; skin: Skin; scale: number; party?: Array<{ name: string; skin: Skin; scale: number }> };
   /** A door code or phone number for the step's group ({code} in its text). */
   code: string;
   puzzle?: PuzzleKind;
@@ -122,6 +122,8 @@ export interface Escort {
   name: string;
   skin: Skin;
   scale: number;
+  /** The rest of a group you are bringing in, each following the one in front. */
+  party?: Escort[];
 }
 
 export type ZombieKind = 'walker' | 'runner';
@@ -150,6 +152,8 @@ export interface Zombie {
   latchAt?: Vec2;
   /** How long it has been shaken at speed; it lets go after LATCH_GRIP seconds. */
   latchT?: number;
+  /** How long it has had hold of someone you are protecting. */
+  biteT?: number;
 }
 
 export type VehicleKind = 'sedan' | 'pickup' | 'van' | 'bike';
@@ -264,7 +268,7 @@ export type Interaction =
 
 /** `cleared`: through the door at the end of a chapter; the next district is loading. */
 export type Phase = 'playing' | 'cleared' | 'won' | 'lost';
-export type LossReason = 'time' | 'caught';
+export type LossReason = 'time' | 'caught' | 'infected';
 
 export type GameEvent =
   | { type: 'task-done'; id: TaskId }
@@ -324,6 +328,8 @@ export type GameEvent =
   | { type: 'guarded'; id: TaskId; count: number }
   /** The way out is shown and they are coming for you. */
   | { type: 'chase'; count: number }
+  /** One of the infected is right on someone you are bringing in (once every few seconds). */
+  | { type: 'escort-danger'; name: string }
   | { type: 'won' }
   | { type: 'lost'; reason: LossReason };
 

@@ -70,6 +70,10 @@
       "sealed": {
         "title": "SEALED IN",
         "text": "Somewhere under the street a siren winds down, and the subway shutters slam, one station after another. The army has sealed the tunnels. The way across is gone, and the dark around you starts to move."
+      },
+      "infected": {
+        "title": "INFECTED",
+        "text": "A cry behind you, and you turn too late. The bite is small, on the arm, and everyone in the street knows what it means. You were meant to bring them through. Somewhere far away, the broadcast keeps reading out the evacuation schedule."
       }
     }
   },
@@ -621,6 +625,58 @@
         ],
         "done": [
           "Sam|Stiff... stiff... there. Closed. Nobody will ever know. That's fine."
+        ]
+      }
+    ],
+    [
+      {
+        "id": "family",
+        "kind": "hold",
+        "verb": "TALK",
+        "effect": "escort-start",
+        "scene": "crashed-bus",
+        "escort": {
+          "name": "Ade",
+          "skin": "humanMaleA",
+          "scale": 1,
+          "behind": "Sam|Ade! Keep everyone together, right behind me.",
+          "party": [
+            {
+              "name": "Funmi",
+              "skin": "humanFemaleA"
+            },
+            {
+              "name": "Tobi",
+              "skin": "humanMaleA",
+              "scale": 0.7
+            }
+          ]
+        },
+        "objective": "Find the family hiding behind the minibus",
+        "short": "the family",
+        "brief": [
+          "Emergency Radio|...a family of three called in, a man, his wife and their boy, hiding behind a minibus near the market. They can't move on their own..."
+        ],
+        "done": [
+          "Ade|You came. We've been behind this bus since the morning. Funmi, Tobi, up. Stay close to him.",
+          "Sam|Single file behind me. If one of them touches any of you, it's over. So you don't stop, and you don't wander."
+        ]
+      },
+      {
+        "id": "family-shelter",
+        "kind": "hold",
+        "verb": "GET IN",
+        "effect": "escort-end",
+        "needsEscort": true,
+        "scene": "shelter-door",
+        "objective": "Bring all three to the shelter (they follow you; keep them clear)",
+        "short": "the shelter",
+        "brief": [
+          "Sam|The shelter door. All three of them, nobody bitten."
+        ],
+        "done": [
+          "Funmi|Inside, Tobi, inside. Ade, the bar on the door.",
+          "Ade|We won't forget you. Go, we're safe now."
         ]
       }
     ]

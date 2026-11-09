@@ -29,14 +29,17 @@ pixel ratio, `?lights=0..6` number of real point lights, `?zoom=N` camera span.
   bigger waves. The third chapter ends at the helicopter. In the first two, the army seals the subway tunnels when
   the clock runs out (SEALED IN). A retry restarts the chapter with what
   you came into it with.
+- **People you bring in:** some steps hand you someone to protect (Nora, Leo, or the family of
+  three, who follow in a line). If one of the infected gets hold of any of them for a second, it is
+  over (INFECTED). You are warned when one is on them; shoot it or get between them.
 - **Leaving a district:** you walk yourself down the subway stairs into the dark before the next
   chapter card. At the end, the helicopter is on the pad with soldiers waiting; walk up and the
   scene plays itself: one checks you over, you all climb in, it lifts off over the city.
 - **Guards and the chase:** some objectives come up guarded, a pack milling over the item (or its
-  pieces) until it sees or hears you (35% of steps in the first district, 75% in the last). Finding
+  pieces) until it sees or hears you (35% of steps in the first district, 60% in the last). Finding
   the map sets a pack hunting you from all round for 45 seconds: run for the way out. Pieces can be
   grabbed from a car or bike, and nothing is ever parked on top of one. (The route bot, which never
-  dodges or fights, wins 32/40 first chapters and 10/20 last chapters with this.)
+  dodges or fights, wins 33/40 first chapters and 6/20 last chapters with this.)
 - **Move:** drag anywhere (floating stick) or WASD. A light push walks, a full push runs.
 - **Fire / swing:** hold FIRE (or Space). Aim assist picks the zombie in front of you. Gunfire
   is loud: everything within earshot comes looking. With a melee weapon the button reads SWING.
@@ -90,7 +93,7 @@ pixel ratio, `?lights=0..6` number of real point lights, `?zoom=N` camera span.
 Told the way Eko Lockdown tells its story: a title card, a letterboxed intro, "Speaker|line"
 dialogue, radio briefs as each step comes up, radio calls as the night gets worse, and endings
 (EVACUATED, TAKEN, LEFT BEHIND, SEALED IN). Each night deals its chapters different steps from the
-pool (21 kinds now), never repeating one in a night, and each chapter ends with the map. Setting and names are invented so the game reads anywhere.
+pool (22 kinds now), never repeating one in a night, and each chapter ends with the map. Setting and names are invented so the game reads anywhere.
 
 ## The city
 

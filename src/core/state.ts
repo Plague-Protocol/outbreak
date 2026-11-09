@@ -5,7 +5,7 @@ import {
   RUN_OVER_SPEED, RUNNER_SIGHT, RUNNER_SPEED, SAFEHOUSE_RADIUS, SPAWNS_BY_TIER, SPEED_BOOST, TASK_HOLD_SECONDS,
   TASK_RADIUS, TIER_THRESHOLDS, USE_RADIUS, VEHICLES, WALKER_SIGHT_BY_TIER, WALKER_SPEED_BY_TIER, WAVE_SPAWN_MAX_DIST,
   ZOMBIE_ACTIVE_RADIUS, ZOMBIE_CAP, ZOMBIE_RADIUS, ZOMBIE_SPAWN_MIN_DIST, ZOMBIES_PER_BLOCK,
-  AIM_CONE, ALERT_SECONDS, BREACH_AT, CHASE, CHASE_ALERT, GUARD_CHANCE, GUARDS, BREACH_DAMAGE, ENGINE_NOISE, ENGINE_NOISE_EVERY, LATCH_DAMAGE, LATCH_DRAG, LATCH_EVERY, LATCH_GRIP,
+  AIM_CONE, ALERT_SECONDS, BITE_SECONDS, BREACH_AT, CHASE, CHASE_ALERT, GUARD_CHANCE, GUARDS, BREACH_DAMAGE, ENGINE_NOISE, ENGINE_NOISE_EVERY, LATCH_DAMAGE, LATCH_DRAG, LATCH_EVERY, LATCH_GRIP,
   LATCH_MAX, LATCH_SHAKE_SPEED, AMMO_PRICES, GUNS, KILL_REWARD, MEDKIT_PRICE, MELEE, MELEE_KNOCKBACK, PICKUP_RADIUS,
   SAFE_AFTER, STAGGER_SECONDS, START_AMMO, START_FUNDS, STORE_DOOR_RADIUS, UPGRADE_BASE, UPGRADE_EFFECT, UPGRADE_FACTOR,
   UPGRADE_LEVELS, WEAPON_PRICES, ZOMBIE_HEALTH,
@@ -133,6 +133,8 @@ export interface GameState {
   killerId: number | null;
   /** Seconds to the engine's next call to every zombie in earshot. */
   engineT: number;
+  /** Seconds until the next "they are on someone" warning. */
+  dangerT: number;
   /** Objectives already looked at for guards (each gets its chance once, when it comes up). */
   guarded: TaskId[];
   zombies: Zombie[];
@@ -195,6 +197,7 @@ export function createGame(
     player: { pos: { ...level.spawn }, vel: { x: 0, y: 0 }, heading: 0, health: carry.health, invuln: 0, vehicleId: null },
     killerId: null,
     engineT: 0,
+    dangerT: 0,
     guarded: [],
     arsenal: cloneArsenal(carry.arsenal),
     pickups: level.pickups.map((p) => ({ ...p, pos: { ...p.pos } })),
@@ -512,6 +515,7 @@ export function step(s: GameState, input: Input, dt: number): GameState {
   updateFlare(s, dt);
   updateClear(s);
   s.safeT = Math.max(0, s.safeT - dt);
+  s.dangerT = Math.max(0, s.dangerT - dt);
   refreshFlow(s);
   updateTasks(s, dt);
   if (s.phase !== 'playing') return s;
@@ -589,7 +593,7 @@ function interact(s: GameState): void {
         s.events.push({ type: 'task-locked', id: t.id, needs: t.requires.filter((id) => !s.tasks.some((x) => x.id === id && x.done)) });
         return;
       }
-      if (t.needsEscort && (!s.escort || dist(s.escort.pos, s.player.pos) > ESCORT_NEAR)) {
+      if (t.needsEscort && (!s.escort || escortGroup(s).some((m) => dist(m.pos, s.player.pos) > ESCORT_NEAR + 2.5))) {
         s.events.push({ type: 'escort-behind' }); // they have to be with you
         return;
       }
@@ -1425,8 +1429,12 @@ function completeTask(s: GameState, t: Task): void {
 function stepDone(s: GameState, t: Task): void {
   switch (t.effect) {
     case 'reveal-exit': s.safehouseKnown = true; releaseChase(s); break;
-    case 'escort-start': // they come out of hiding and follow you
-      s.escort = { pos: { x: t.pos.x + 1, y: t.pos.y + 1 }, heading: 0, speed: 0, riding: false, ...t.escort! };
+    case 'escort-start': { // they come out of hiding and follow you, the rest of a group in a line behind
+      const { party, ...lead } = t.escort!;
+      const at = (k: number) => ({ pos: { x: t.pos.x + 1 + k * 0.8, y: t.pos.y + 1 }, heading: 0, speed: 0, riding: false });
+      s.escort = { ...at(0), ...lead, party: party?.map((m, k) => ({ ...at(k + 1), ...m })) };
+      break;
+    }
       break;
     case 'escort-end': s.escort = null; break; // safe inside
     case 'lure': // a flare, bait: everything near it goes to it for a while
@@ -1498,16 +1506,24 @@ function takeParts(s: GameState): void {
 }
 
 /** Nora follows you through the streets (the same way they do), and rides along in a car. */
+/** Everyone you are bringing in: the one you found first, then the rest of the group. */
+export function escortGroup(s: GameState): Escort[] {
+  return s.escort ? [s.escort, ...(s.escort.party ?? [])] : [];
+}
+
+/** Your group follows you through the streets in a line (the same way they do), and rides along in a car. */
 function updateEscort(s: GameState, dt: number): void {
-  const e = s.escort;
-  if (!e) return;
+  let ahead = s.player.pos;
+  for (const e of escortGroup(s)) { follow(s, e, ahead, dt); ahead = e.pos; }
+}
+
+function follow(s: GameState, e: Escort, p: Vec2, dt: number): void {
   const car = playerVehicle(s);
   if (car) { e.riding = true; e.pos = { ...car.pos }; e.speed = 0; return; }
   if (e.riding) { e.riding = false; e.pos = { x: s.player.pos.x + 1, y: s.player.pos.y }; resolve(s.map, e.pos, PLAYER_RADIUS); }
-  const p = s.player.pos;
   const dx = p.x - e.pos.x, dy = p.y - e.pos.y, d = Math.hypot(dx, dy);
   let vx = 0, vy = 0;
-  if (d > 2.2) {
+  if (d > (p === s.player.pos ? 2.2 : 1.5)) {
     if (d < 3 || lineClear(s.map, e.pos, p, PLAYER_RADIUS)) { vx = dx / d; vy = dy / d; }
     else {
       const cols = s.map.cols, c = cellOf(s.map, e.pos);
@@ -1524,6 +1540,7 @@ function updateEscort(s: GameState, dt: number): void {
   }
   // left far behind (you drove off and got out somewhere else): she catches up the back way
   if (d > 45) { e.pos = { x: p.x - Math.cos(s.player.heading) * 2, y: p.y - Math.sin(s.player.heading) * 2 }; resolve(s.map, e.pos, PLAYER_RADIUS); }
+  if (d > 45) return;
   const before = { ...e.pos };
   const v = ESCORT_SPEED * (d > 8 ? 1.15 : 1);
   e.pos.x += vx * v * dt;
@@ -1574,6 +1591,25 @@ function updateZombies(s: GameState, dt: number): void {
   for (const z of s.zombies) {
     if (z.action === 'dead') { z.actionT -= dt; continue; }
     if (z.latch != null) { updateLatched(s, z, dt); if (s.phase !== 'playing') return; continue; }
+    // someone you are protecting: it takes hold (a second to shoot it or shove it off), then a bite is the end
+    if (s.escort && z.action !== 'rise' && z.staggerT <= 0 && !busy) {
+      let held = false;
+      for (const m of escortGroup(s)) {
+        if (m.riding) continue;
+        const dm = dist(z.pos, m.pos);
+        if (dm < 4 && s.dangerT <= 0) { s.dangerT = 4; s.events.push({ type: 'escort-danger', name: m.name }); }
+        if (dm > ZOMBIE_RADIUS + PLAYER_RADIUS + 0.3) continue;
+        held = true;
+        z.biteT = (z.biteT ?? 0) + dt;
+        if (z.biteT < BITE_SECONDS) break;
+        z.action = 'feed';
+        z.heading = Math.atan2(m.pos.y - z.pos.y, m.pos.x - z.pos.x);
+        s.killerId = z.id;
+        lose(s, 'infected');
+        return;
+      }
+      if (!held) z.biteT = 0;
+    }
     const dx = p.x - z.pos.x, dy = p.y - z.pos.y;
     const d = Math.hypot(dx, dy);
     if (d > ZOMBIE_ACTIVE_RADIUS) continue; // dormant

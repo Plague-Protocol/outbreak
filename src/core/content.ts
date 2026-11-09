@@ -30,7 +30,7 @@ export interface StepDef extends StepText {
   effect?: Effect;
   /** Someone has to be with you (escort-end). */
   needsEscort?: boolean;
-  escort?: { name: string; skin: Skin; scale?: number; behind: string };
+  escort?: { name: string; skin: Skin; scale?: number; behind: string; party?: Array<{ name: string; skin: Skin; scale?: number }> };
   parts?: { count: number; item: string; name: string; objective: string; fit: string; ready: string };
   puzzle?: PuzzleKind;
   clear?: number;
@@ -54,7 +54,7 @@ export interface Story {
   tier: string[][];
   /** Said the first time you get in a car, or on a bike, in a run: what the engine does. */
   vehicle?: { car: string[]; bike: string[] };
-  endings: { won: Ending; caught: Ending; time: Ending; sealed: Ending };
+  endings: { won: Ending; caught: Ending; time: Ending; sealed: Ending; infected?: Ending };
 }
 
 export interface Content {

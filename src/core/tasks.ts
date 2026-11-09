@@ -67,7 +67,7 @@ export function generateChain(rng: Rng, map: MapData, spawn: Vec2, safehouse: Ve
     if (d.seconds) t.seconds = d.seconds;
     if (d.effect) t.effect = d.effect;
     if (d.needsEscort) t.needsEscort = true;
-    if (d.escort) t.escort = { name: d.escort.name, skin: d.escort.skin, scale: d.escort.scale ?? 1 };
+    if (d.escort) t.escort = { name: d.escort.name, skin: d.escort.skin, scale: d.escort.scale ?? 1, party: d.escort.party?.map((m) => ({ ...m, scale: m.scale ?? 1 })) };
     if (d.parts) {
       // pieces lie a block or two around it, apart from each other
       const parts: Vec2[] = [];

@@ -4,8 +4,9 @@ import { answerFor } from './helpers';
 import { content, stepText, validate, type Content } from '../src/core/content';
 import {
   buy, chapterBonus, clearLeft, solvePuzzle, chapterSeed, createGame, currentTask, finalChapter, hurtPlayer, interactionFor, isRevealed, nextChapter,
-  priceOf, restartChapter, step, type GameState,
+  priceOf, restartChapter, step, escortGroup, type GameState,
 } from '../src/core/state';
+import { ending } from '../src/core/story';
 import { CHAPTER_HEAL, CHAPTERS, GEAR, PLAYER_HEALTH } from '../src/core/config';
 import type { Input, Task } from '../src/core/types';
 
@@ -324,7 +325,8 @@ describe('task content and its mechanics', () => {
   it('the wires: each to its own colour', () => {
     const g = at('rewire');
     const t = currentTask(g)!;
-    expect(solvePuzzle(g, 'rewire', [0, 1, 2, 3].map((i) => (i + 1) % 4))).toBe(false);
+    const right = answerFor(t) as number[];
+    expect(solvePuzzle(g, 'rewire', [right[1]!, right[0]!, right[2]!, right[3]!])).toBe(false); // two crossed
     expect(solvePuzzle(g, 'rewire', answerFor(t))).toBe(true);
   });
 
@@ -339,6 +341,45 @@ describe('task content and its mechanics', () => {
     for (const z of g.zombies) if (t.targets!.includes(z.id)) { z.health = 0; z.action = 'dead'; z.actionT = 1; }
     step(g, IDLE, DT);
     expect(t.done).toBe(true);
+  });
+
+  it('a family follows in a line, and the shelter takes them only when all three are with you', () => {
+    const g = at('family');
+    g.guarded = g.tasks.map((t) => t.id);
+    doTask(g, currentTask(g)!);
+    const party = escortGroup(g);
+    expect(party.map((m) => m.name)).toEqual(['Ade', 'Funmi', 'Tobi']);
+    for (let i = 0; i < 150; i++) step(g, { dx: 1, dy: 0 }, DT);
+    // a line: each one near the one in front
+    for (let i = 1; i < party.length; i++) expect(Math.hypot(party[i]!.pos.x - party[i - 1]!.pos.x, party[i]!.pos.y - party[i - 1]!.pos.y)).toBeLessThan(4);
+    const shelter = currentTask(g)!;
+    expect(shelter.id).toBe('family-shelter');
+    g.player.pos = { ...shelter.pos };
+    g.player.vel = { x: 0, y: 0 };
+    party.forEach((m, i) => { m.pos = { x: shelter.pos.x + 1 + i * 0.5, y: shelter.pos.y }; });
+    party[2]!.pos = { x: shelter.pos.x + 30, y: shelter.pos.y }; // Tobi has fallen behind
+    step(g, USE, DT);
+    expect(g.events).toContainEqual({ type: 'escort-behind' });
+    party[2]!.pos = { x: shelter.pos.x + 2, y: shelter.pos.y + 1 };
+    doTask(g, shelter);
+    expect(shelter.done).toBe(true);
+    expect(g.escort).toBeNull();
+  });
+
+  it('if one of them is bitten, it is over', () => {
+    const g = at('family');
+    g.guarded = g.tasks.map((t) => t.id);
+    doTask(g, currentTask(g)!);
+    for (let i = 0; i < 120; i++) step(g, IDLE, DT); // past the moment's grace after finishing a step
+    const tobi = escortGroup(g)[2]!;
+    g.zombies = [{ id: 77, kind: 'walker', pos: { x: tobi.pos.x + 3, y: tobi.pos.y }, heading: 0, speed: 0, action: 'idle', actionT: 0, cooldown: 0, health: 60, staggerT: 0, alertT: 0, wanderT: 9, wanderDir: { x: 0, y: 0 } }];
+    step(g, IDLE, DT);
+    expect(g.events.some((e) => e.type === 'escort-danger')).toBe(true); // whoever it is nearest
+    g.zombies[0]!.pos = { x: tobi.pos.x + 0.8, y: tobi.pos.y };
+    for (let i = 0; i < 40 && g.phase === 'playing'; i++) { g.zombies[0]!.pos = { x: tobi.pos.x + 0.8, y: tobi.pos.y }; step(g, IDLE, DT); }
+    expect(g.phase).toBe('lost');
+    expect(g.lossReason).toBe('infected');
+    expect(ending('infected').title).toBe('INFECTED');
   });
 
   it('Leo is small, follows you, and his mother only counts once he is with you', () => {

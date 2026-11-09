@@ -94,7 +94,8 @@ describe('countdown', () => {
 
 describe('interactions', () => {
   it('a task only starts when Use is pressed, and walking away cancels it', () => {
-    const g = calmGame(2);
+    let g = calmGame(2);
+    for (let seed = 3; currentTask(g)!.kind !== 'hold' || currentTask(g)!.parts; seed++) g = calmGame(seed); // a plain stand-at-it step
     const t = currentTask(g)!;
     g.player.pos = { ...t.pos };
     for (let i = 0; i < 60; i++) step(g, IDLE, DT);
@@ -231,6 +232,7 @@ describe('vehicles', () => {
   it('a wrecked car throws the player out and cannot be used again', () => {
     const g = calmGame(7);
     const v = g.vehicles[0]!;
+    v.kind = 'sedan'; // a car (on a bike they go for you, not the bike)
     g.player.vehicleId = v.id;
     g.player.pos = { ...v.pos };
     v.health = 1;
@@ -783,7 +785,7 @@ describe('safe while busy', () => {
   it('zombies hold back while you work an objective, and for a moment after', () => {
     // a night whose first step is a plain one you stand at (no fuses to find, no long barricade)
     let g = createGame(40);
-    for (let seed = 40; !(currentTask(g)!.seconds === undefined && !currentTask(g)!.parts); seed++) g = createGame(seed);
+    for (let seed = 40; !(currentTask(g)!.kind === 'hold' && currentTask(g)!.seconds === undefined && !currentTask(g)!.parts && !currentTask(g)!.needsEscort); seed++) g = createGame(seed);
     const t = currentTask(g)!;
     g.player.pos = { ...t.pos };
     g.player.vel = { x: 0, y: 0 };

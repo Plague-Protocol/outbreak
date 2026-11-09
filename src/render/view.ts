@@ -7,7 +7,7 @@ import { Actor, type CharacterAssets, type ClipName } from './characters';
 import { buildCity, type CityMeshes, type LightSource } from './city';
 import { MeshBuilder } from './mesh';
 import { barricadeMesh, barricadeRubble, bottleMesh, burningFlare, Effects, Evac, gearMesh, glint, SubwayExit, type StoryItem, pickupMesh, pulseGlint, storefrontMesh, storyItem, vehicleMesh, weaponMesh, wreckVehicle } from './props';
-import { currentTask, finalChapter, gunStats, isGun, isRevealed, playerSpeed, playerVehicle, requiredDone, type GameState } from '../core/state';
+import { currentTask, escortGroup, finalChapter, gunStats, isGun, isRevealed, playerSpeed, playerVehicle, requiredDone, type GameState } from '../core/state';
 import { ATTACK_WINDUP, MELEE, SAFEHOUSE_RADIUS, TASK_RADIUS } from '../core/config';
 import type { GameEvent, TaskId, Vec2, WeaponKind, Zombie } from '../core/types';
 import { stepDef } from '../core/content';
@@ -53,7 +53,8 @@ export class GameView {
   /** Things at each step. `scenery` stays whether or not the step is up yet; `part` is a fuse to find; `burning`
    * is the lit flare (only while it burns). */
   private taskItems: Array<{ group: Group; task: TaskId; whenDone: boolean; scenery?: boolean; part?: number; burning?: boolean }> = [];
-  private nora: Actor | null = null;
+  /** The people following you to safety (one, or a group). */
+  private escorts: Actor[] = [];
   private noraKey = '';
   /** Searchable house doors (a glint until searched). */
   private houseGlints = new Map<number, Object3D>();
@@ -774,26 +775,30 @@ export class GameView {
     this.renderer.render(this.scene, this.camera);
   }
 
-  /** Nora, following you to the shelter (out of sight while she rides in your car). */
+  /** The people you are bringing in, following you (out of sight while they ride in your car). */
   private updateNora(s: GameState, dt: number): void {
-    const e = s.escort;
-    if (!e) { if (this.nora) this.nora.root.visible = false; return; }
-    const key = `${e.name}:${e.skin}:${e.scale}`;
-    if (!this.nora || this.noraKey !== key) { // whoever is following you this time
-      if (this.nora) { this.scene.remove(this.nora.root); this.nora.dispose(); }
-      this.nora = new Actor(this.assets, e.skin);
-      this.nora.root.scale.multiplyScalar(e.scale);
-      this.nora.play('Idle', { fade: 0 });
-      this.scene.add(this.nora.root);
+    const group = escortGroup(s);
+    const key = group.map((e) => `${e.name}:${e.skin}:${e.scale}`).join();
+    if (this.noraKey !== key) { // whoever is following you this time
+      for (const a of this.escorts) { this.scene.remove(a.root); a.dispose(); }
+      this.escorts = group.map((e) => {
+        const a = new Actor(this.assets, e.skin);
+        a.root.scale.multiplyScalar(e.scale);
+        a.play('Idle', { fade: 0 });
+        this.scene.add(a.root);
+        return a;
+      });
       this.noraKey = key;
     }
-    const a = this.nora;
-    a.root.visible = !e.riding;
-    if (e.riding) return;
-    if (e.speed > 3.2) a.play('Jog', { timeScale: a.rateFor('Jog', e.speed), fade: 0.2 });
-    else if (e.speed > 0.2) a.play('Walk', { timeScale: a.rateFor('Walk', e.speed), fade: 0.2 });
-    else a.play('Idle', { fade: 0.3 });
-    a.update(e.pos.x, e.pos.y, e.heading, dt, true);
+    group.forEach((e, i) => {
+      const a = this.escorts[i]!;
+      a.root.visible = !e.riding;
+      if (e.riding) return;
+      if (e.speed > 3.2) a.play('Jog', { timeScale: a.rateFor('Jog', e.speed), fade: 0.2 });
+      else if (e.speed > 0.2) a.play('Walk', { timeScale: a.rateFor('Walk', e.speed), fade: 0.2 });
+      else a.play('Idle', { fade: 0.3 });
+      a.update(e.pos.x, e.pos.y, e.heading, dt, true);
+    });
   }
 
   /** Protective gear shows on the player while it lasts. */

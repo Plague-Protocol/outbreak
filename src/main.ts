@@ -260,6 +260,7 @@ function narrate(events: readonly GameEvent[]): void {
       }
       case 'latched': hud.toast(e.count > 1 ? `${e.count} hanging on! Speed up to shake them off.` : 'One grabbed hold! Speed up to shake it off.'); view.shake(0.3); break;
       case 'guarded': hud.toast(`${e.count} of them are standing over it. Thin them out or slip past.`); break;
+      case 'escort-danger': hud.toast(`They're on ${e.name}! Get between them.`); break;
       case 'chase': hud.toast(finalChapter(state) ? 'They have your scent. Run for the helicopter!' : 'They have your scent. Run for the tunnel!'); view.shake(0.5); break;
       case 'vehicle-breached': hud.toast('The glass is gone. They can reach you! Shake them off or get out.'); view.shake(0.6); break;
       case 'out-of-fuel': hud.toast('Out of fuel. It rolls to a stop.'); break;
@@ -345,7 +346,7 @@ function frame(now: number): void {
       // let the moment play out before the ending card
       // won and cleared play out a scene first: met and checked by the soldiers, aboard, lifting off;
       // or walking down into the subway
-      endTimer = state.phase === 'won' ? 7.8 : state.phase === 'cleared' ? 3.8 : state.lossReason === 'caught' ? 2.6 : 1.2;
+      endTimer = state.phase === 'won' ? 7.8 : state.phase === 'cleared' ? 3.8 : state.lossReason !== 'time' ? 2.6 : 1.2;
       if (state.phase === 'cleared' || state.phase === 'won') hud.cinema(true);
     }
   } else {

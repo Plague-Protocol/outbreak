@@ -1,6 +1,6 @@
 // Shared test moves: do a step the way a player would (pieces first, bring whoever is with you,
 // solve its puzzle, put down whoever comes for you).
-import { clearLeft, solvePuzzle, step, type GameState } from '../src/core/state';
+import { clearLeft, escortGroup, solvePuzzle, step, type GameState } from '../src/core/state';
 import { TASK_HOLD_SECONDS } from '../src/core/config';
 import type { Input, Task } from '../src/core/types';
 
@@ -19,7 +19,7 @@ export function doTask(g: GameState, t: Task): void {
   t.parts?.forEach((q, i) => { if (!t.got![i]) { g.player.pos = { ...q }; step(g, IDLE, DT); } });
   g.player.pos = { ...t.pos };
   g.player.vel = { x: 0, y: 0 };
-  if (g.escort) g.escort.pos = { x: t.pos.x + 1, y: t.pos.y };
+  escortGroup(g).forEach((m, i) => { m.pos = { x: t.pos.x + 1 + i * 0.6, y: t.pos.y + (i % 2) * 0.6 }; });
   if (t.kind === 'clear') {
     step(g, IDLE, DT); // they come
     for (const z of g.zombies) if (t.targets?.includes(z.id)) { z.health = 0; z.action = 'dead'; z.actionT = 1; }

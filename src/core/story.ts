@@ -144,5 +144,6 @@ export function survivorLines(v: Survivor, moment: 'asked' | 'reminder' | 'fetch
 
 export function ending(outcome: 'won' | LossReason, final = true): Ending {
   const e = content().story.endings;
+  if (outcome === 'infected') return e.infected ?? e.caught;
   return outcome === 'time' && !final ? e.sealed : e[outcome];
 }
