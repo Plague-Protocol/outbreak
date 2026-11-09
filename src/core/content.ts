@@ -3,6 +3,8 @@
 // public/content/tasks.json, so new steps are written, not programmed. A backend can later serve the
 // same file (and choose per night); the version goes into every run so a replay uses the same content.
 
+import type { Theme } from './types';
+
 /** How a step plays. */
 export type Archetype =
   | 'hold' // stand at it for a moment (take it, start it, give it)
@@ -46,10 +48,14 @@ export interface StepDef extends StepText {
 
 export interface Ending { title: string; text: string }
 
+/** A chapter's night: fog and sky colours, the moon, the street lamps, how far you see (1 = normal). */
+export interface Light { fog: string; sky: string; ground: string; moon: string; lamp: string; haze: number }
+
 /** The story around the steps: the intro, chapter cards, radio calls as it gets worse, endings. */
 export interface Story {
   intro: { card: string; sub: string; lines: string[] };
-  chapters: Array<{ card: string; sub: string }>;
+  /** Each chapter: its title card, the part of the city it is in, how you leave it, and its light. */
+  chapters: Array<{ card: string; sub: string; theme?: Theme; exit?: 'subway' | 'gate' | 'heli'; way?: string; light?: Light }>;
   arrive: { other: string[]; final: string[] };
   tier: string[][];
   /** Said the first time you get in a car, or on a bike, in a run: what the engine does. */
@@ -79,6 +85,13 @@ export function setContent(c: Content): void {
   for (const d of [...c.groups.flat(), c.map, ...c.optional]) index.set(d.id, d);
 }
 
+let chapterNow = 0;
+/** The chapter being played (for words like {way}: how you leave it). */
+export function setChapter(n: number): void { chapterNow = n; }
+export function chapterInfo(n = chapterNow): Partial<Content['story']['chapters'][number]> {
+  return content().story.chapters[n] ?? {};
+}
+
 export function content(): Content {
   if (!current) throw new Error('task content not loaded');
   return current;
@@ -94,7 +107,7 @@ export function stepDef(id: string): StepDef {
 export function stepText(id: string, final: boolean, vars: Record<string, string> = {}): StepText {
   const d = stepDef(id);
   const t = final && d.final ? { ...d, ...d.final } : d;
-  const fill = (s: string) => s.replace(/\{(\w+)\}/g, (m, k: string) => vars[k] ?? m);
+  const fill = (s: string) => s.replace(/\{(\w+)\}/g, (m, k: string) => vars[k] ?? (k === 'way' ? chapterInfo().way : undefined) ?? m);
   return { objective: fill(t.objective), short: fill(t.short), brief: t.brief.map(fill), done: t.done.map(fill) };
 }
 

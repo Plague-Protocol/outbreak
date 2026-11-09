@@ -15,23 +15,56 @@
     "chapters": [
       {
         "card": "CHAPTER ONE",
-        "sub": "Where it started"
+        "sub": "Where it started",
+        "theme": "downtown",
+        "exit": "subway",
+        "way": "the subway entrance",
+        "light": {
+          "fog": "#0a0e16",
+          "sky": "#5a6c94",
+          "ground": "#262018",
+          "moon": "#a8bcff",
+          "lamp": "#ffcf8a",
+          "haze": 1
+        }
       },
       {
         "card": "CHAPTER TWO",
-        "sub": "Across the tracks"
+        "sub": "Across the tracks",
+        "theme": "docks",
+        "exit": "gate",
+        "way": "the gate in the army barricade",
+        "light": {
+          "fog": "#161009",
+          "sky": "#7a6450",
+          "ground": "#2a1d12",
+          "moon": "#d8b898",
+          "lamp": "#ff9838",
+          "haze": 0.85
+        }
       },
       {
         "card": "CHAPTER THREE",
-        "sub": "The last helicopter"
+        "sub": "The last helicopter",
+        "theme": "edge",
+        "exit": "heli",
+        "way": "the landing zone",
+        "light": {
+          "fog": "#0b1418",
+          "sky": "#4f6e80",
+          "ground": "#1a2016",
+          "moon": "#bcd8ff",
+          "lamp": "#dcebff",
+          "haze": 0.8
+        }
       }
     ],
     "arrive": {
       "other": [
-        "Sam|Out of the tunnel. New streets, same nightmare. Find the way through."
+        "Sam|Out of the tunnel and into the docks. Cranes, containers, the rail yard. Same nightmare, more places for it to hide."
       ],
       "final": [
-        "Sam|Last stretch. I can hear rotors somewhere over the rooftops.",
+        "Sam|Through the barricade. This is the edge of the city: open ground, the woods, and somewhere out there, rotors.",
         "Emergency Radio|...final evacuation loading on schedule. Anyone still out there, this is your last chance..."
       ]
     },
@@ -87,10 +120,10 @@
     "objective": "Find the district map in the abandoned police car",
     "short": "the map",
     "brief": [
-      "Emergency Radio|Police cruisers carried district maps with the open tunnels marked. Find one and you'll know the way out of here."
+      "Emergency Radio|Police cruisers carried district maps with the open ways out marked. Find one and you'll know how to get out of here."
     ],
     "done": [
-      "Sam|The map. One subway entrance is marked \"OPEN\". That's my way into the next district."
+      "Sam|The map. Someone has circled {way} in pen and written OPEN. That's my way into the next district."
     ],
     "final": {
       "objective": "Find the evacuation map in the abandoned police car",

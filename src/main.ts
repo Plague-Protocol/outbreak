@@ -7,7 +7,7 @@ import {
   partsReady, shortName, survivorLines, tierLines, vehicleLines, type Line,
 } from './core/story';
 import type { GameEvent, Task, TaskId } from './core/types';
-import { setContent, stepDef, type Content } from './core/content';
+import { chapterInfo, setChapter, setContent, stepDef, type Content } from './core/content';
 import { GameView } from './render/view';
 import { loadCharacterAssets } from './render/characters';
 import { loadModels } from './render/models';
@@ -109,6 +109,7 @@ function begin(fresh: GameState, withIntro: boolean): void {
   storePage?.hide();
   if (talk.open) talk.close();
   convo.length = 0;
+  setChapter(fresh.chapter);
   if (fresh.chapter === 0) warned.clear();
   paused = false;
   controls.enabled = true;
@@ -261,7 +262,7 @@ function narrate(events: readonly GameEvent[]): void {
       case 'latched': hud.toast(e.count > 1 ? `${e.count} hanging on! Speed up to shake them off.` : 'One grabbed hold! Speed up to shake it off.'); view.shake(0.3); break;
       case 'guarded': hud.toast(`${e.count} of them are standing over it. Thin them out or slip past.`); break;
       case 'escort-danger': hud.toast(`They're on ${e.name}! Get between them.`); break;
-      case 'chase': hud.toast(finalChapter(state) ? 'They have your scent. Run for the helicopter!' : 'They have your scent. Run for the tunnel!'); view.shake(0.5); break;
+      case 'chase': hud.toast(`They have your scent. Run for ${finalChapter(state) ? 'the helicopter' : chapterInfo().way}!`); view.shake(0.5); break;
       case 'vehicle-breached': hud.toast('The glass is gone. They can reach you! Shake them off or get out.'); view.shake(0.6); break;
       case 'out-of-fuel': hud.toast('Out of fuel. It rolls to a stop.'); break;
       case 'refueled': hud.toast(e.from === 'pump' ? 'Filling up at the pump...' : 'Refuelled.'); break;
@@ -279,7 +280,7 @@ function narrate(events: readonly GameEvent[]): void {
       case 'fetched': { const v = state.survivors.find((x) => x.id === e.id); if (v) dialogue.say(survivorLines(v, 'fetched')); break; }
       case 'survivor-done': { const v = state.survivors.find((x) => x.id === e.id); if (v) convo.push(...survivorLines(v, 'done', e.reward)); break; }
       case 'gear-broken': hud.toast(`Your ${e.gear} is torn apart. Buy another at a weapon store.`); break;
-      case 'chapter-cleared': hud.toast('Down the stairs, into the dark...'); break;
+      case 'chapter-cleared': hud.toast(chapterInfo().exit === 'gate' ? 'Through the barricade and out of the docks...' : 'Down the stairs, into the dark...'); break;
       case 'vehicle-wrecked': hud.toast('The engine dies. Get out!'); view.shake(0.8); break;
       case 'empty': hud.toast('Out of ammo. Swap to your baton (Q), or buy rounds at a weapon store.'); break;
       case 'store-open': {

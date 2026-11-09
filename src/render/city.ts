@@ -41,7 +41,7 @@ function poolTexture(): CanvasTexture {
   return new CanvasTexture(c);
 }
 
-export function buildCity(map: MapData, seed: number): CityMeshes {
+export function buildCity(map: MapData, seed: number, lampColor = 0xffcf8a): CityMeshes {
   const rng = createRng(seed ^ 0x51ed);
   const n = Math.ceil(map.size / CHUNK);
   const solids = Array.from({ length: n * n }, () => new MeshBuilder());
@@ -126,6 +126,12 @@ export function buildCity(map: MapData, seed: number): CityMeshes {
         break;
       }
       case 'scorch': sb.disc(d.x + d.w / 2, d.y + d.h / 2, Math.max(d.w, d.h) / 2, 0.018, 0x0d0c0b, 10, 0.55, int(rng, 1, 1e6)); break;
+      case 'rails': { // ballast, sleepers and two rails
+        sb.floor(d.x, d.y, d.x + d.w, d.y + d.h, 0.165, 0x2c2723);
+        for (let x = d.x + 0.3; x < d.x + d.w; x += 1.1) sb.floor(x, d.y + 0.15, x + 0.35, d.y + d.h - 0.15, 0.17, 0x3a2a1e);
+        for (const y of [d.y + 0.55, d.y + d.h - 0.65]) sb.box(d.x + d.w / 2, 0.22, y, d.w, 0.1, 0.1, 0x6a6c70, 0x8a8c90);
+        break;
+      }
       case 'checkpoint': { // a floodlight mast, half the lamps dead
         const x = d.x, z = d.y;
         sb.box(x, 3.2, z, 0.2, 6.4, 0.2, 0x2a2b2e);
@@ -443,8 +449,8 @@ export function buildCity(map: MapData, seed: number): CityMeshes {
     s.box((cx + ax) / 2, b.height - 0.1, (cz + az) / 2, Math.abs(ax - cx) + 0.15, 0.12, Math.abs(az - cz) + 0.15, 0x3a3d42);
     const broken = next(rng) < 0.4; // flickering
     const dead = next(rng) < 0.35; // out
-    g.box(ax, b.height - 0.3, az, 0.45, 0.2, 0.45, dead ? 0x2a2a2a : 0xffe2a8);
-    if (!dead) lights.push({ pos: new Vector3(ax, b.height - 0.5, az), color: 0xffcf8a, kind: 'lamp', broken });
+    g.box(ax, b.height - 0.3, az, 0.45, 0.2, 0.45, dead ? 0x2a2a2a : lampColor);
+    if (!dead) lights.push({ pos: new Vector3(ax, b.height - 0.5, az), color: lampColor, kind: 'lamp', broken });
   }
 
   const solidMat = weather(new MeshLambertMaterial({

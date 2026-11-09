@@ -5,7 +5,7 @@
 // Setting: Port Halden, an invented harbour city, on the night a virus empties it. Universal on
 // purpose: no real places, no real organisations.
 import type { LossReason, Survivor, SurvivorReward, Task } from './types';
-import { content, stepDef, stepText, type Ending } from './content';
+import { chapterInfo, content, stepDef, stepText, type Ending } from './content';
 
 export interface Line {
   who: string;
@@ -85,11 +85,11 @@ export function chapterLines(final: boolean): Line[] {
 
 /** The HUD objective once every step is done. */
 export function exitLabel(final: boolean): string {
-  return final ? 'Get to the evac point' : 'Get to the subway entrance (the next district)';
+  return final ? 'Get to the evac point' : `Get to ${chapterInfo().way ?? 'the way out'} (the next district)`;
 }
 
 export function exitOpen(final: boolean): Line[] {
-  return [L(final ? `${HERO}|That's everything. The evac point. Go!` : `${HERO}|That's everything. The subway entrance. Go!`)];
+  return [L(final ? `${HERO}|That's everything. The evac point. Go!` : `${HERO}|That's everything. Now ${chapterInfo().way ?? 'the way out'}. Go!`)];
 }
 
 export function exitLocked(missing: string[], final: boolean): Line[] {

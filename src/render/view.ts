@@ -6,11 +6,11 @@ import {
 import { Actor, type CharacterAssets, type ClipName } from './characters';
 import { buildCity, type CityMeshes, type LightSource } from './city';
 import { MeshBuilder } from './mesh';
-import { barricadeMesh, barricadeRubble, bottleMesh, burningFlare, Effects, Evac, gearMesh, glint, SubwayExit, type StoryItem, pickupMesh, pulseGlint, storefrontMesh, storyItem, vehicleMesh, weaponMesh, wreckVehicle } from './props';
+import { ArmyGate, barricadeMesh, barricadeRubble, bottleMesh, burningFlare, Effects, Evac, gearMesh, glint, SubwayExit, type StoryItem, pickupMesh, pulseGlint, storefrontMesh, storyItem, vehicleMesh, weaponMesh, wreckVehicle } from './props';
 import { currentTask, escortGroup, finalChapter, gunStats, isGun, isRevealed, playerSpeed, playerVehicle, requiredDone, type GameState } from '../core/state';
 import { ATTACK_WINDUP, MELEE, SAFEHOUSE_RADIUS, TASK_RADIUS } from '../core/config';
 import type { GameEvent, TaskId, Vec2, WeaponKind, Zombie } from '../core/types';
-import { stepDef } from '../core/content';
+import { chapterInfo, stepDef } from '../core/content';
 
 const params = new URLSearchParams(location.search);
 const VIEW_SPAN = Number(params.get('zoom')) || 24; // world units visible across the narrower screen axis
@@ -74,10 +74,16 @@ export class GameView {
   private crates: InstancedMesh | null = null;
   private evac = new Evac();
   private exitDoor = new SubwayExit();
+  private gate = new ArmyGate();
+  private hemi = new HemisphereLight(0x5a6c94, 0x262018, 3.8);
+  private moon = new DirectionalLight(0xa8bcff, 2.3);
+  private haze = 1;
   /** Soldiers waiting by the helicopter: two keep watch, one checks you over before you board. */
   private soldiers: Actor[] = [];
   /** The end of a chapter, played out: walking down into the subway, or boarding the helicopter. */
   private outro: { kind: 'stairs' | 'heli'; t: number; from: Vector3 } | null = null;
+  /** How this chapter is left: down into the subway, through the army gate, or the helicopter. */
+  private exitKind: 'subway' | 'gate' | 'heli' = 'subway';
   private wornGear = { vest: false, helmet: false };
   private effects: Effects;
   private rings: InstancedMesh;
@@ -109,8 +115,8 @@ export class GameView {
     this.scene.fog = new Fog(FOG, 30, 80);
 
     // night: a cold sky fill and a moon bright enough to make out the street, the flashlight does the rest
-    this.scene.add(new HemisphereLight(0x5a6c94, 0x262018, 3.8));
-    const moon = new DirectionalLight(0xa8bcff, 2.3);
+    this.scene.add(this.hemi);
+    const moon = this.moon;
     moon.position.set(-30, 60, 20);
     this.scene.add(moon);
     this.flashlight = new SpotLight(0xffe9c4, 70, 26, 0.5, 0.55, 1.4);
@@ -132,7 +138,7 @@ export class GameView {
       this.soldiers.push(a);
       this.scene.add(a.root);
     }
-    this.scene.add(this.player.root, this.level, this.evac.group, this.exitDoor.group);
+    this.scene.add(this.player.root, this.level, this.evac.group, this.exitDoor.group, this.gate.group);
     this.effects = new Effects(this.scene);
 
     // objective markers: a glowing ring on the ground and a faint shaft of light
@@ -197,7 +203,17 @@ export class GameView {
       this.scene.remove(this.city.group, this.city.pools);
       this.city.group.traverse((o) => { if ((o as Mesh).isMesh) (o as Mesh).geometry.dispose(); });
     }
-    this.city = buildCity(s.map, s.seed);
+    // each chapter's own night: the docks under orange sodium lamps, the edge of town in cold fog
+    const ch = chapterInfo(s.chapter), L = ch.light, hex = (c: string | undefined, d: number) => (c ? parseInt(c.slice(1), 16) : d);
+    const fog = hex(L?.fog, FOG);
+    (this.scene.fog as Fog).color.setHex(fog);
+    this.renderer.setClearColor(fog);
+    this.hemi.color.setHex(hex(L?.sky, 0x5a6c94));
+    this.hemi.groundColor.setHex(hex(L?.ground, 0x262018));
+    this.moon.color.setHex(hex(L?.moon, 0xa8bcff));
+    this.haze = L?.haze ?? 1;
+    this.exitKind = finalChapter(s) ? 'heli' : ch.exit ?? 'subway';
+    this.city = buildCity(s.map, s.seed, hex(L?.lamp, 0xffcf8a));
     this.scene.add(this.city.group, this.city.pools);
     this.lightSources = this.city.lights.slice();
     for (const st of s.stores) { // the neon sign over each weapon store
@@ -262,8 +278,10 @@ export class GameView {
     this.evac.group.position.set(s.safehouse.x, 0.1, s.safehouse.y);
     this.evac.reset();
     this.outro = null;
-    this.exitDoor.group.position.set(s.safehouse.x, 0, s.safehouse.y);
-    this.exitDoor.group.rotation.y = (s.seed % 4) * (Math.PI / 2);
+    for (const g of [this.exitDoor.group, this.gate.group]) {
+      g.position.set(s.safehouse.x, 0, s.safehouse.y);
+      g.rotation.y = (s.seed % 4) * (Math.PI / 2);
+    }
     this.wasCaught = false;
     this.player.play('Idle', { fade: 0 });
     this.player.setUpper(null);
@@ -580,7 +598,7 @@ export class GameView {
     const yaw = YAW + (1 - c) * 0.5;
     const fog = this.scene.fog as Fog;
     fog.near = dist * 0.95;
-    fog.far = dist * 2.1;
+    fog.far = dist * 2.1 * this.haze;
     this.camera.position.set(
       this.focus.x + Math.cos(elev) * Math.cos(yaw) * dist,
       Math.sin(elev) * dist,
@@ -715,11 +733,13 @@ export class GameView {
     }
     const final = finalChapter(s);
     this.evac.group.visible = s.safehouseKnown && final;
-    this.exitDoor.group.visible = s.safehouseKnown && !final;
+    this.exitDoor.group.visible = s.safehouseKnown && this.exitKind === 'subway';
+    this.gate.group.visible = s.safehouseKnown && this.exitKind === 'gate';
     if (final) { this.evac.update(dt, this.time, this.liftT()); this.updateSoldiers(s, dt); }
     else {
       for (const a of this.soldiers) a.root.visible = false;
-      this.exitDoor.update(this.time, requiredDone(s));
+      if (this.exitKind === 'gate') this.gate.update(this.time, requiredDone(s));
+      else this.exitDoor.update(this.time, requiredDone(s));
     }
     this.updateGear(s);
 
@@ -877,14 +897,16 @@ export class GameView {
     if (o.kind === 'stairs') {
       const g = this.exitDoor.group, r = g.rotation.y;
       const W = (x: number, z: number) => new Vector3(g.position.x + x * Math.cos(r) + z * Math.sin(r), 0, g.position.z - x * Math.sin(r) + z * Math.cos(r));
-      const top = W(0, 3.3), bottom = W(0, -2.3);
+      const gate = this.exitKind === 'gate';
+      const top = W(0, gate ? 4 : 3.3), bottom = W(0, gate ? -7 : -2.3);
       const tA = Math.min(1.4, Math.max(0.4, o.from.distanceTo(top) / 4));
       if (o.t < tA) { pos = o.from.clone().lerp(top, o.t / tA); heading = toward(o.from, top); speed = Math.min(3.5, o.from.distanceTo(top) / tA); }
       else { // down the steps, sinking into the dark
         const k = Math.min(1, (o.t - tA) / 2.2);
         pos = top.clone().lerp(bottom, k);
         heading = toward(top, bottom);
-        y = -Math.max(0, k - 0.12) * 3.4;
+        if (!gate) y = -Math.max(0, k - 0.12) * 3.4;
+        else speed = 4.5; // through the gate and away up the road
         if (k >= 1) speed = 0;
       }
     } else {

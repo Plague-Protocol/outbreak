@@ -550,6 +550,60 @@ export class SubwayExit {
   }
 }
 
+/**
+ * The way out of the docks: a gate in the army's barricade across the road (concrete blocks,
+ * sandbags, a chain-link gate that rolls aside once you have the map). You walk through toward -z.
+ */
+export class ArmyGate {
+  readonly group = new Group();
+  private leaves: Mesh[] = [];
+  private sign: MeshBasicMaterial;
+  private glow: Mesh;
+
+  constructor() {
+    const b = new MeshBuilder();
+    for (const sx of [-1, 1]) {
+      for (let k = 0; k < 4; k++) b.box(sx * (2.9 + k * 1.75), 0.55, 0, 1.6, 1.1, 0.9, 0x8a877e, 0x9a978e); // concrete blocks
+      for (let k = 0; k < 6; k++) b.box(sx * (2.6 + k * 1.1), 0.25 + (k % 2) * 0.05, -1.1, 1.0, 0.5, 0.6, 0x6e6046, 0x7d6e52); // sandbags behind
+      b.box(sx * 2.2, 1.6, 0, 0.18, 3.2, 0.18, 0x2c2e31); // gate posts
+      for (let k = 0; k < 3; k++) b.box(sx * (3.5 + k * 1.75), 1.45, 0, 1.7, 0.04, 0.04, 0x9aa0a6); // razor wire on top
+    }
+    b.box(0, 3.25, 0, 4.6, 0.25, 0.2, 0x2c2e31); // lintel
+    b.box(-5.5, 3, 0.6, 0.18, 6, 0.18, 0x2c2e31); // floodlight mast
+    b.box(-5.5, 6, 0.6, 1.2, 0.4, 0.4, 0x2c2e31);
+    this.group.add(new Mesh(b.build(), weather(new MeshLambertMaterial({ vertexColors: true }))));
+    for (const sx of [-1, 1]) { // the two halves of the gate: a frame with chain link
+      const l = new MeshBuilder();
+      l.box(0, 1.5, 0, 2.1, 0.08, 0.08, 0x3a3d40).box(0, 0.12, 0, 2.1, 0.08, 0.08, 0x3a3d40).box(sx * 1.0, 0.8, 0, 0.08, 1.5, 0.08, 0x3a3d40);
+      for (let k = 0; k < 7; k++) l.box(-0.9 + k * 0.3, 0.8, 0, 0.025, 1.4, 0.025, 0x6a6f74);
+      for (let k = 0; k < 4; k++) l.box(0, 0.35 + k * 0.33, 0, 2.0, 0.025, 0.025, 0x6a6f74);
+      const leaf = new Mesh(l.build(), new MeshLambertMaterial({ vertexColors: true }));
+      leaf.position.x = sx * 1.05;
+      this.leaves.push(leaf);
+      this.group.add(leaf);
+    }
+    this.sign = new MeshBasicMaterial({ map: textTexture('CHECKPOINT', '#e8f6ea', 256, 96, 'bold 40px system-ui, sans-serif', false), color: 0xff6a5a });
+    const sign = new Mesh(new BoxGeometry(2.6, 0.6, 0.1), this.sign);
+    sign.position.set(0, 2.85, 0.15);
+    const lamp = new Mesh(new BoxGeometry(0.9, 0.3, 0.06), new MeshBasicMaterial({ color: 0xf4f7ff }));
+    lamp.position.set(-5.5, 5.95, 0.84);
+    // the floodlight's pool on the road in front of the gate
+    this.glow = new Mesh(
+      new PlaneGeometry(9, 7).rotateX(-Math.PI / 2),
+      new MeshBasicMaterial({ color: 0xdfe8ff, transparent: true, opacity: 0.08, blending: AdditiveBlending, depthWrite: false }),
+    );
+    this.glow.position.set(0, 0.06, 2.5);
+    this.group.add(sign, lamp, this.glow);
+  }
+
+  update(time: number, open: boolean): void {
+    this.leaves.forEach((l, i) => { const to = (i ? 1 : -1) * (open ? 3.1 : 1.05); l.position.x += (to - l.position.x) * 0.06; });
+    this.sign.color.setHex(open ? 0x7dffa8 : 0xff6a5a);
+    (this.glow.material as MeshBasicMaterial).color.setHex(open ? 0x7dffa8 : 0xdfe8ff);
+    (this.glow.material as MeshBasicMaterial).opacity = open ? 0.1 + Math.sin(time * 3) * 0.03 : 0.07;
+  }
+}
+
 /** Which way the helicopter faces on its pad. */
 const EVAC_YAW = 0.6;
 

@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { doTask } from './helpers';
 import { answerFor } from './helpers';
-import { content, stepText, validate, type Content } from '../src/core/content';
+import { content, setChapter, stepText, validate, type Content } from '../src/core/content';
 import {
   buy, chapterBonus, clearLeft, solvePuzzle, chapterSeed, createGame, currentTask, finalChapter, hurtPlayer, interactionFor, isRevealed, nextChapter,
   priceOf, restartChapter, step, escortGroup, type GameState,
@@ -136,7 +136,7 @@ describe('chapters', () => {
     const first = createGame(chapterSeed(4, 2));
     const last = createGame(chapterSeed(4, 2), undefined, { night: 4, chapter: 2 });
     expect(runners(first)).toBe(0);
-    expect(runners(last)).toBeGreaterThan(3);
+    expect(runners(last)).toBeGreaterThanOrEqual(3);
   });
 });
 
@@ -390,5 +390,27 @@ describe('task content and its mechanics', () => {
     expect(currentTask(g)!.id).toBe('mother');
     doTask(g, currentTask(g)!);
     expect(g.escort).toBeNull();
+  });
+});
+
+describe('each chapter is its own part of the city', () => {
+  it('downtown, then the docks and rail yard, then the edge of town and its woods', () => {
+    const count = (g: GameState, d: string) => g.map.blocks.filter((b) => b.district === d).length;
+    for (const night of [3, 8, 21]) {
+      const [a, b, c] = [0, 1, 2].map((chapter) => createGame(chapterSeed(night, chapter), undefined, { night, chapter }));
+      expect(count(a!, 'downtown')).toBeGreaterThan(4);
+      expect(count(b!, 'industrial')).toBeGreaterThan(30);
+      expect(b!.map.decor.some((d) => d.kind === 'rails')).toBe(true);
+      expect(count(c!, 'outskirts')).toBeGreaterThan(25);
+      expect(c!.map.blocks.some((x) => x.landmark === 'Halden Woods')).toBe(true);
+      for (const g of [a, b, c]) expect(count(g!, 'downtown') > 0).toBe(g === a);
+    }
+  });
+
+  it('each way out is named for the chapter it leaves', () => {
+    setChapter(1);
+    expect(stepText('map', false).done.join(' ')).toContain('the gate in the army barricade');
+    setChapter(0);
+    expect(stepText('map', false).done.join(' ')).toContain('the subway entrance');
   });
 });

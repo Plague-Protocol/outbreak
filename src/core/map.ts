@@ -1,5 +1,5 @@
 import { createRng, chance, int, next, pick, range, shuffle, type Rng } from './rng';
-import type { Block, Building, Decor, District, MapData, ObstacleKind, ParkingSpot, Storefront, Vec2 } from './types';
+import type { Block, Building, Decor, District, MapData, ObstacleKind, ParkingSpot, Storefront, Theme, Vec2 } from './types';
 import { PILEUPS, STORE_COUNT } from './config';
 
 // World scale: a character is 2.8 units tall (about 1.75 m), so 1 unit is about 0.63 m.
@@ -41,25 +41,33 @@ function overlaps(a: Building, b: Building, pad: number): boolean {
   return a.x < b.x + b.w + pad && b.x < a.x + a.w + pad && a.y < b.y + b.h + pad && b.y < a.y + a.h + pad;
 }
 
-function assignDistricts(rng: Rng): District[][] {
+/** The rail yard's row of blocks in the docks. */
+const RAIL_ROW = 3;
+
+function assignDistricts(rng: Rng, theme: Theme): District[][] {
   const d: District[][] = [];
+  const rim = (i: number, j: number) => i === 0 || i === BLOCKS - 1 || j === 0;
   for (let i = 0; i < BLOCKS; i++) {
     d.push([]);
     for (let j = 0; j < BLOCKS; j++) {
       let k: District = 'residential';
       if (j === WATER_ROW) k = 'water';
+      else if (theme === 'docks') k = j >= 2 ? 'industrial' : rim(i, j) && chance(rng, 0.5) ? 'outskirts' : 'residential'; // yards, sheds, rows of workers' houses
+      else if (theme === 'edge') k = i >= 2 && i <= 5 && j >= 2 && j <= 3 ? 'residential' : 'outskirts'; // a last few streets, then open ground
       else if (j === WATER_ROW - 1) k = 'industrial';
       else if (i >= 2 && i <= 5 && j >= 2 && j <= 3) k = 'downtown';
-      else if (i === 0 || i === BLOCKS - 1 || j === 0) k = chance(rng, 0.8) ? 'outskirts' : 'residential';
+      else if (rim(i, j)) k = chance(rng, 0.8) ? 'outskirts' : 'residential';
       d[i]!.push(k);
     }
   }
-  // a 2x2 park somewhere in the residential belt
-  const spots: Array<[number, number]> = [];
-  for (let i = 1; i < BLOCKS - 2; i++) for (let j = 1; j < WATER_ROW - 2; j++) {
-    if ([[0, 0], [1, 0], [0, 1], [1, 1]].every(([a, b]) => d[i + a!]![j + b!] === 'residential')) spots.push([i, j]);
-  }
-  if (spots.length > 0) {
+  // 2x2 parks (woods, at the edge of town) in what is left
+  const host: District = theme === 'edge' ? 'outskirts' : 'residential';
+  for (let n = theme === 'edge' ? 3 : theme === 'docks' ? 0 : 1; n > 0; n--) {
+    const spots: Array<[number, number]> = [];
+    for (let i = 1; i < BLOCKS - 2; i++) for (let j = 1; j < WATER_ROW - 2; j++) {
+      if ([[0, 0], [1, 0], [0, 1], [1, 1]].every(([a, b]) => d[i + a!]![j + b!] === host)) spots.push([i, j]);
+    }
+    if (!spots.length) break;
     const [pi, pj] = pick(rng, spots);
     for (const [a, b] of [[0, 0], [1, 0], [0, 1], [1, 1]]) d[pi + a!]![pj + b!] = 'park';
   }
@@ -209,9 +217,9 @@ function streetDamage(seed: number, obstacles: Building[], decor: Decor[], label
  * harbour, and desolate outskirts. Obstacles only ever sit inside blocks (or the harbour), so the
  * street grid stays open and connected.
  */
-export function generateMap(seed: number): MapData {
+export function generateMap(seed: number, theme: Theme = 'downtown'): MapData {
   const rng = createRng(seed);
-  const districts = assignDistricts(rng);
+  const districts = assignDistricts(rng, theme);
   const storeBlocks = chooseStorefronts(seed, districts);
   const special = chooseSpecialBlocks(seed, districts, storeBlocks);
   const labels: Array<{ name: string; x: number; y: number }> = [];
@@ -324,14 +332,26 @@ export function generateMap(seed: number): MapData {
         }
         case 'park': {
           decor.push({ kind: 'grass', x: bx, y: by, w: BLOCK, h: BLOCK });
-          lampCorners();
-          const n = int(rng, 6, 10);
-          for (let k = 0; k < n; k++) tryAdd(prop('tree', bx + range(rng, 1, BLOCK - 2), by + range(rng, 1, BLOCK - 2), false, rng), 2.2);
-          scatter(['bench', 'bench', 'barricade'], int(rng, 1, 3));
-          block.landmark = 'Halden Park';
+          const woods = theme === 'edge'; // no lamps out here: thick trees, half of them dead
+          if (!woods) lampCorners();
+          const n = woods ? int(rng, 12, 18) : int(rng, 6, 10);
+          for (let k = 0; k < n; k++) tryAdd(prop(woods && chance(rng, 0.45) ? 'deadtree' : 'tree', bx + range(rng, 1, BLOCK - 2), by + range(rng, 1, BLOCK - 2), false, rng), woods ? 1.6 : 2.2);
+          if (!woods) scatter(['bench', 'bench', 'barricade'], int(rng, 1, 3));
+          block.landmark = woods ? 'Halden Woods' : 'Halden Park';
           break;
         }
         case 'industrial': {
+          if (theme === 'docks') lampCorners();
+          if (theme === 'docks' && j === RAIL_ROW) {
+            // the rail yard: two tracks across the block, freight wagons standing on them
+            for (const ty of [8, 21]) {
+              decor.push({ kind: 'rails', x: bx, y: by + ty - 1, w: BLOCK, h: 2 });
+              for (let k = 0; k < 3; k++) if (chance(rng, 0.6)) tryAdd(prop('container', bx + 1 + k * 9.6, by + ty - 1.3, true, rng), 1.2);
+            }
+            scatter(['barrel', 'barrel'], int(rng, 0, 2));
+            if (i === 3 || i === 4) block.landmark = 'Rail yard';
+            break;
+          }
           // a warehouse and rows of shipping containers
           const ww = range(rng, 14, 18), wh = range(rng, 11, 14);
           const left = chance(rng, 0.5);

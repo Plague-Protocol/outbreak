@@ -10,6 +10,8 @@ export type ObstacleKind =
   | 'bus' | 'truck' | 'sandbag' | 'ambulance' | 'hospital';
 
 export type District = 'downtown' | 'residential' | 'park' | 'industrial' | 'outskirts' | 'water';
+/** What part of the city a chapter is in: the centre, the docks and rail yard, or the edge of town. */
+export type Theme = 'downtown' | 'docks' | 'edge';
 
 export interface Block {
   i: number;
@@ -25,7 +27,7 @@ export interface Block {
 /** Ground and overhead dressing with no collision (grass, dirt, a gas station canopy, pier planks). */
 export interface Decor {
   kind: 'grass' | 'dirt' | 'canopy' | 'pier' | 'plaza' | 'lot'
-    | 'rubble' | 'litter' | 'luggage' | 'weeds' | 'fallenlamp' | 'scorch' | 'checkpoint';
+    | 'rubble' | 'litter' | 'luggage' | 'weeds' | 'fallenlamp' | 'scorch' | 'checkpoint' | 'rails';
   x: number;
   y: number;
   w: number;

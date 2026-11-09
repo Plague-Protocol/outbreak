@@ -1,6 +1,7 @@
 import { chance, fork, next, pick, range, shuffle } from './rng';
 import { cellOf, distanceField, generateMap, PITCH, STREET, UNREACHABLE } from './map';
 import { chapterGroups, generateChain } from './tasks';
+import { content } from './content';
 import {
   AMBUSH_CHANCE, AMMO_PICKUPS, BOTTLE_PICKUPS, CRATE_COUNT, GEAR_PICKUPS, HOUSE_COUNT, JERRYCAN_PICKUPS, PLAYER_SPEED, STORE_NAMES,
   SURVIVOR_COUNT, SURVIVOR_NAMES, TASK_HOLD_SECONDS, TIME_PAD, TIME_SLACK, VEHICLE_COUNT, VEHICLE_MIX, VEHICLES,
@@ -37,7 +38,7 @@ const dist = (a: Vec2, b: Vec2) => Math.hypot(a.x - b.x, a.y - b.y);
 
 /** Deterministic: the same seed (and chapter of the same night) always yields the same Level. */
 export function generateLevel(seed: number, opts: { night?: number; chapter?: number } = {}): Level {
-  const map = generateMap(fork(seed, 'map').s);
+  const map = generateMap(fork(seed, 'map').s, content().story.chapters[opts.chapter ?? 0]?.theme);
   const rng = fork(seed, 'level');
 
   const [spawn0] = shuffle(rng, map.points);

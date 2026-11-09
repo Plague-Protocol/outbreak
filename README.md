@@ -32,6 +32,12 @@ pixel ratio, `?lights=0..6` number of real point lights, `?zoom=N` camera span.
 - **People you bring in:** some steps hand you someone to protect (Nora, Leo, or the family of
   three, who follow in a line). If one of the infected gets hold of any of them for a second, it is
   over (INFECTED). You are warned when one is on them; shoot it or get between them.
+- **Three parts of the city:** each chapter has its own look, layout and light, set in the content
+  file (`story.chapters`: theme, exit, light). Chapter one is downtown under cold moonlight;
+  chapter two the docks and rail yard (warehouses, containers, freight wagons on the tracks, orange
+  sodium lamps, haze); chapter three the edge of town (a few streets, open ground, Halden Woods,
+  cold fog, fewer of them but more runners). You leave downtown down the subway stairs, the docks
+  through a gate in the army barricade, and the city by helicopter.
 - **Leaving a district:** you walk yourself down the subway stairs into the dark before the next
   chapter card. At the end, the helicopter is on the pad with soldiers waiting; walk up and the
   scene plays itself: one checks you over, you all climb in, it lifts off over the city.
@@ -176,7 +182,7 @@ colour picker) at `/tools/models.html` under `npm run dev`.
 | Triangles | <= 50,000 | ~34,500-41,700 (the debris of the abandoned city adds a few thousand) |
 | Real lights | small | hemisphere + moon + flashlight/headlights + fill + 3 pooled + muzzle flash |
 | Zombie characters drawn | 12 nearest | the rest are simulated or dormant, not drawn |
-| JS bundle (gzip) | <= 220 KB | 218.6 KB at start, in one file (the store 3.0 KB, full map 1.7 KB and puzzle pages 1.9 KB load when first needed; task content is 6 KB of JSON) |
+| JS bundle (gzip) | <= 220 KB | 220.0 KB at start (full: the next feature needs room made or a new budget), in one file (the store 3.0 KB, full map 1.7 KB and puzzle pages 1.9 KB load when first needed; task content is 6 KB of JSON) |
 | Character assets (gzip) | <= 450 KB | ~426 KB (GLB 282 KB + 4 skins 144 KB) |
 | Vehicle and weapon models (gzip) | <= 150 KB | 132 KB (622 KB raw); ~2,300 triangles a car, 500-1,200 a weapon |
 
