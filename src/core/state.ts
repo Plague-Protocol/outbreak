@@ -5,7 +5,8 @@ import {
   RUN_OVER_SPEED, RUNNER_SIGHT, RUNNER_SPEED, SAFEHOUSE_RADIUS, SPAWNS_BY_TIER, SPEED_BOOST, TASK_HOLD_SECONDS,
   TASK_RADIUS, TIER_THRESHOLDS, USE_RADIUS, VEHICLES, WALKER_SIGHT_BY_TIER, WALKER_SPEED_BY_TIER, WAVE_SPAWN_MAX_DIST,
   ZOMBIE_ACTIVE_RADIUS, ZOMBIE_CAP, ZOMBIE_RADIUS, ZOMBIE_SPAWN_MIN_DIST, ZOMBIES_PER_BLOCK,
-  AIM_CONE, ALERT_SECONDS, AMMO_PRICES, GUNS, KILL_REWARD, MEDKIT_PRICE, MELEE, MELEE_KNOCKBACK, PICKUP_RADIUS,
+  AIM_CONE, ALERT_SECONDS, BREACH_AT, BREACH_DAMAGE, ENGINE_NOISE, ENGINE_NOISE_EVERY, LATCH_DAMAGE, LATCH_DRAG, LATCH_EVERY, LATCH_GRIP,
+  LATCH_MAX, LATCH_SHAKE_SPEED, AMMO_PRICES, GUNS, KILL_REWARD, MEDKIT_PRICE, MELEE, MELEE_KNOCKBACK, PICKUP_RADIUS,
   SAFE_AFTER, STAGGER_SECONDS, START_AMMO, START_FUNDS, STORE_DOOR_RADIUS, UPGRADE_BASE, UPGRADE_EFFECT, UPGRADE_FACTOR,
   UPGRADE_LEVELS, WEAPON_PRICES, ZOMBIE_HEALTH,
   ALARM_RADIUS, ALARM_SECONDS, ALARM_SHOT_RADIUS, BOTTLE_FLIGHT, BOTTLE_RANGE, BOTTLES_PRICE, CLEAR_COUNT, FUEL_SECONDS,
@@ -130,6 +131,8 @@ export interface GameState {
   kills: number;
   /** Zombie that caught the player, if any (the renderer stages the ending around it). */
   killerId: number | null;
+  /** Seconds to the engine's next call to every zombie in earshot. */
+  engineT: number;
   zombies: Zombie[];
   vehicles: Vehicle[];
   crates: Crate[];
@@ -189,6 +192,7 @@ export function createGame(
     tier: 0,
     player: { pos: { ...level.spawn }, vel: { x: 0, y: 0 }, heading: 0, health: carry.health, invuln: 0, vehicleId: null },
     killerId: null,
+    engineT: 0,
     arsenal: cloneArsenal(carry.arsenal),
     pickups: level.pickups.map((p) => ({ ...p, pos: { ...p.pos } })),
     stores: level.stores.map((st) => ({ ...st, pos: { ...st.pos } })),
@@ -426,7 +430,12 @@ export function step(s: GameState, input: Input, dt: number): GameState {
   }
 
   const driving = playerVehicle(s);
-  if (driving) { drive(driving, input, dt); burnFuel(s, driving, dt); }
+  if (driving) {
+    drive(driving, input, dt, 1 - LATCH_DRAG * latchedOn(s, driving.id));
+    burnFuel(s, driving, dt);
+    s.engineT -= dt;
+    if (s.engineT <= 0) { s.engineT = ENGINE_NOISE_EVERY; alertWithin(s, driving.kind === 'bike' ? ENGINE_NOISE.bike : ENGINE_NOISE.car); }
+  }
   else movePlayer(s, input, dt);
   pumpFuel(s, dt);
   for (const v of s.vehicles) moveVehicle(s, v, dt, v === driving);
@@ -1140,9 +1149,10 @@ function pushOutOfVehicle(v: Vehicle, p: Vec2, r: number): boolean {
  * Arcade driving for touch: push the stick where you want to go and the car steers toward it.
  * Pushing back against the nose when slow reverses.
  */
-function drive(v: Vehicle, input: Input, dt: number): void {
+function drive(v: Vehicle, input: Input, dt: number, load = 1): void {
   if (v.wrecked) return;
-  const spec = VEHICLES[v.kind];
+  const base = VEHICLES[v.kind];
+  const spec = { ...base, maxSpeed: base.maxSpeed * load };
   const mag = v.fuel > 0 ? Math.min(1, Math.hypot(input.dx, input.dy)) : 0; // an empty tank coasts
   let target = 0;
   let steerTo: number | null = null;
@@ -1188,6 +1198,7 @@ function moveVehicle(s: GameState, v: Vehicle, dt: number, driven: boolean): voi
     const force = Math.abs(v.speed);
     if (force > 5) {
       s.events.push({ type: 'vehicle-crash', id: v.id, force });
+      for (const z of s.zombies) if (z.latch === v.id) shakeOff(s, z, v, 0.6);
       v.speed *= -0.2;
       damageVehicle(s, v, (force - 5) * 3);
     } else {
@@ -1197,7 +1208,7 @@ function moveVehicle(s: GameState, v: Vehicle, dt: number, driven: boolean): voi
 
   // zombies: knocked down at speed, shoved aside when slow
   for (const z of s.zombies) {
-    if (z.action === 'dead') continue;
+    if (z.action === 'dead' || z.latch != null) continue;
     for (const c of vehicleCircles(v)) {
       if (Math.hypot(z.pos.x - c.x, z.pos.y - c.y) >= c.r + ZOMBIE_RADIUS) continue;
       if (Math.abs(v.speed) > RUN_OVER_SPEED) {
@@ -1215,6 +1226,97 @@ function moveVehicle(s: GameState, v: Vehicle, dt: number, driven: boolean): voi
       }
       break;
     }
+  }
+}
+
+/** How many are hanging on to a vehicle. */
+export function latchedOn(s: GameState, id: number): number {
+  let n = 0;
+  for (const z of s.zombies) if (z.latch === id && z.action !== 'dead') n++;
+  return n;
+}
+
+/** Off it goes: thrown clear of the body, dazed, hurt by the fall. */
+function shakeOff(s: GameState, z: Zombie, v: Vehicle, hurt: number): void {
+  z.latch = null;
+  z.latchT = 0;
+  z.action = 'chase';
+  z.staggerT = 1.2;
+  const dx = z.pos.x - v.pos.x, dy = z.pos.y - v.pos.y, d = Math.hypot(dx, dy) || 1;
+  z.pos.x += (dx / d) * 1.2;
+  z.pos.y += (dy / d) * 1.2;
+  resolve(s.map, z.pos, ZOMBIE_RADIUS);
+  z.health -= hurt * 100;
+  if (z.health <= 0) {
+    z.action = 'dead';
+    z.actionT = CORPSE_SECONDS;
+    z.speed = 0;
+    s.kills++;
+    s.funds += KILL_REWARD;
+    s.events.push({ type: 'zombie-killed', id: z.id });
+  }
+  s.events.push({ type: 'shaken', id: z.id });
+}
+
+/** Grab on to the vehicle at the point of the body nearest to it. */
+function latchOn(s: GameState, z: Zombie, v: Vehicle): boolean {
+  if (latchedOn(s, v.id) >= LATCH_MAX) return false;
+  const spec = VEHICLES[v.kind];
+  const c = Math.cos(v.heading), sn = Math.sin(v.heading);
+  const rx = z.pos.x - v.pos.x, ry = z.pos.y - v.pos.y;
+  const along = Math.max(-spec.length / 2, Math.min(spec.length / 2, rx * c + ry * sn));
+  const across = rx * -sn + ry * c;
+  // on the sides it holds the door frame; at the ends, the bonnet or the boot
+  const side = Math.abs(along) < spec.length / 2 - 0.4;
+  z.latch = v.id;
+  z.latchT = 0;
+  z.latchAt = side
+    ? { x: along, y: Math.sign(across || 1) * (spec.width / 2 + ZOMBIE_RADIUS * 0.6) }
+    : { x: Math.sign(along) * (spec.length / 2 + ZOMBIE_RADIUS * 0.6), y: Math.max(-spec.width / 3, Math.min(spec.width / 3, across)) };
+  z.action = 'cling';
+  z.cooldown = LATCH_EVERY * 0.5;
+  s.events.push({ type: 'latched', id: z.id, count: latchedOn(s, v.id) });
+  return true;
+}
+
+/** Hanging on: rides along, claws at the car, reaches in once it is beaten enough; lets go at speed. */
+function updateLatched(s: GameState, z: Zombie, dt: number): void {
+  const v = s.vehicles.find((x) => x.id === z.latch);
+  if (!v || v.wrecked || s.player.vehicleId !== v.id) { // the car is dead or you got out: after you
+    z.latch = null;
+    z.action = 'chase';
+    z.alertT = Math.max(z.alertT, ALERT_SECONDS);
+    return;
+  }
+  const c = Math.cos(v.heading), sn = Math.sin(v.heading), at = z.latchAt!;
+  z.pos.x = v.pos.x + at.x * c - at.y * sn;
+  z.pos.y = v.pos.y + at.x * sn + at.y * c;
+  z.heading = Math.atan2(v.pos.y - z.pos.y, v.pos.x - z.pos.x);
+  z.speed = 0;
+  if (Math.abs(v.speed) > LATCH_SHAKE_SPEED) {
+    z.latchT = (z.latchT ?? 0) + dt;
+    if (z.latchT > LATCH_GRIP) { shakeOff(s, z, v, Math.abs(v.speed) > 15 ? 0.8 : 0.3); return; }
+  } else z.latchT = Math.max(0, (z.latchT ?? 0) - dt * 0.5);
+  z.cooldown = Math.max(0, z.cooldown - dt);
+  if (z.cooldown > 0) return;
+  z.cooldown = LATCH_EVERY;
+  const spec = VEHICLES[v.kind];
+  const wasWhole = v.health > spec.health * BREACH_AT;
+  s.events.push({ type: 'vehicle-crash', id: v.id, force: 2 });
+  damageVehicle(s, v, LATCH_DAMAGE);
+  if (s.player.vehicleId !== v.id) return; // wrecked: you were thrown out
+  if (v.health > spec.health * BREACH_AT) return;
+  if (wasWhole) s.events.push({ type: 'vehicle-breached', id: v.id });
+  // the glass is gone: it reaches in
+  const took = hurtPlayer(s, BREACH_DAMAGE);
+  s.events.push({ type: 'player-hit', damage: took, by: z.id });
+  if (s.player.health <= 0) {
+    s.player.health = 0;
+    s.killerId = z.id;
+    exitVehicle(s);
+    z.latch = null;
+    z.action = 'feed';
+    lose(s, 'caught');
   }
 }
 
@@ -1406,12 +1508,14 @@ function updateSafehouse(s: GameState): void {
 function updateZombies(s: GameState, dt: number): void {
   const p = s.player.pos;
   const cols = s.map.cols;
-  const car = playerVehicle(s);
-  const reachBonus = car ? VEHICLES[car.kind].length / 2 - 0.4 : 0; // a car is a bigger target
+  const ride = playerVehicle(s);
+  const car = ride && ride.kind !== 'bike' ? ride : null; // on a bike they go for you, not the bike
+  const reachBonus = car ? VEHICLES[car.kind].length / 2 - 0.4 : ride ? 0.3 : 0; // a car is a bigger target
   const busy = isBusy(s);
 
   for (const z of s.zombies) {
     if (z.action === 'dead') { z.actionT -= dt; continue; }
+    if (z.latch != null) { updateLatched(s, z, dt); if (s.phase !== 'playing') return; continue; }
     const dx = p.x - z.pos.x, dy = p.y - z.pos.y;
     const d = Math.hypot(dx, dy);
     if (d > ZOMBIE_ACTIVE_RADIUS) continue; // dormant
@@ -1448,9 +1552,9 @@ function updateZombies(s: GameState, dt: number): void {
       z.cooldown = ATTACK_COOLDOWN;
       if (d >= ATTACK_REACH + reachBonus) continue; // missed
       if (car) {
-        if (Math.abs(car.speed) < 2) {
+        if (Math.abs(car.speed) < LATCH_SHAKE_SPEED * 0.5 && !latchOn(s, z, car)) { // no room left on it: it beats on the body
           s.events.push({ type: 'vehicle-crash', id: car.id, force: 2 });
-          damageVehicle(s, car, 15);
+          damageVehicle(s, car, LATCH_DAMAGE);
         }
         continue;
       }
@@ -1493,7 +1597,7 @@ function updateZombies(s: GameState, dt: number): void {
     const sight = z.alertT > 0 ? Infinity : z.kind === 'runner' ? RUNNER_SIGHT : WALKER_SIGHT_BY_TIER[s.tier]!;
     const chaseSpeed = (z.kind === 'runner' ? RUNNER_SPEED : WALKER_SPEED_BY_TIER[s.tier]!) * s.zombieMul;
 
-    if (d < ATTACK_RANGE + reachBonus && z.cooldown <= 0 && !(car && Math.abs(car.speed) > 3)) {
+    if (d < ATTACK_RANGE + reachBonus && z.cooldown <= 0 && !(ride && Math.abs(ride.speed) > 3)) {
       z.action = 'attack';
       z.actionT = ATTACK_WINDUP[z.kind];
       z.speed = 0;
@@ -1559,7 +1663,7 @@ function updateZombies(s: GameState, dt: number): void {
 /** Push overlapping zombies apart so a crowd spreads out instead of stacking. */
 function separate(s: GameState): void {
   const p = s.player.pos;
-  const zs = s.zombies.filter((z) => z.action !== 'dead' && dist(z.pos, p) < ZOMBIE_ACTIVE_RADIUS);
+  const zs = s.zombies.filter((z) => z.action !== 'dead' && z.latch == null && dist(z.pos, p) < ZOMBIE_ACTIVE_RADIUS);
   const min = ZOMBIE_RADIUS * 2;
   for (let i = 0; i < zs.length; i++) {
     for (let j = i + 1; j < zs.length; j++) {

@@ -8,7 +8,7 @@ import {
 import { cellOf, reachable } from '../src/core/map';
 import {
   AMMO_PRICES, ATTACK_DAMAGE, CHAPTERS, ATTACK_WINDUP, GUNS, MEDKIT_HEAL, MELEE, PLAYER_HEALTH, SAFE_AFTER, SPAWNS_BY_TIER, STORE_COUNT,
-  TASK_HOLD_SECONDS, UPGRADE_LEVELS, VEHICLES, WEAPON_PRICES, ZOMBIE_CAP, ZOMBIE_HEALTH,
+  LATCH_DRAG, TASK_HOLD_SECONDS, UPGRADE_LEVELS, VEHICLES, WEAPON_PRICES, ZOMBIE_CAP, ZOMBIE_HEALTH,
 } from '../src/core/config';
 import type { Zombie } from '../src/core/types';
 import type { Input, Vec2 } from '../src/core/types';
@@ -241,6 +241,92 @@ describe('vehicles', () => {
     expect(playerVehicle(g)).toBeNull();
     g.player.pos = { x: v.pos.x, y: v.pos.y + 2.6 };
     expect(interactionFor(g)?.kind === 'enter').toBe(false);
+  });
+});
+
+describe('vehicles are not safe', () => {
+  const walker = (id: number, pos: Vec2): Zombie => ({ id, kind: 'walker', pos, heading: 0, speed: 0, action: 'idle', actionT: 0, cooldown: 0, health: 60, staggerT: 0, alertT: 0, wanderT: 9, wanderDir: { x: 0, y: 0 } });
+  const inCar = (seed: number, kind: 'sedan' | 'bike' = 'sedan') => {
+    const g = calmGame(seed);
+    const v = g.vehicles[0]!;
+    v.kind = kind;
+    v.health = VEHICLES[kind].health;
+    v.fuel = 1;
+    v.pos = { ...openSpot(g, 9) };
+    v.heading = 0;
+    g.player.vehicleId = v.id;
+    g.player.pos = { ...v.pos };
+    g.nextZombieId = 100;
+    return { g, v };
+  };
+
+  it('a few vehicles, about half of them bikes', () => {
+    let bikes = 0, all = 0;
+    for (const seed of [1, 2, 3, 4, 5, 6, 7, 8]) {
+      const g = calmGame(seed);
+      expect(g.vehicles.length).toBeLessThanOrEqual(10);
+      all += g.vehicles.length;
+      bikes += g.vehicles.filter((v) => v.kind === 'bike').length;
+    }
+    expect(bikes / all).toBeGreaterThan(0.3);
+    expect(bikes / all).toBeLessThan(0.6);
+  });
+
+  it('the engine calls zombies from well beyond sight', () => {
+    const { g, v } = inCar(3);
+    g.zombies = [walker(100, { x: v.pos.x, y: v.pos.y + 24 })];
+    step(g, IDLE, DT);
+    expect(g.zombies[0]!.alertT).toBeGreaterThan(0);
+  });
+
+  it('they grab on to a slow car, claw at it, and slow it down', () => {
+    const { g, v } = inCar(5);
+    g.zombies = [walker(100, { x: v.pos.x, y: v.pos.y + VEHICLES.sedan.width / 2 + 0.7 }), walker(101, { x: v.pos.x + 1, y: v.pos.y - VEHICLES.sedan.width / 2 - 0.7 })];
+    for (let i = 0; i < 90; i++) step(g, IDLE, DT);
+    expect(g.zombies.filter((z) => z.latch === v.id).length).toBe(2);
+    expect(v.health).toBeLessThan(VEHICLES.sedan.health);
+    // they ride along where they hold on
+    const at = g.zombies.map((z) => Math.hypot(z.pos.x - v.pos.x, z.pos.y - v.pos.y));
+    for (let i = 0; i < 20; i++) step(g, { dx: 1, dy: 0 }, DT);
+    g.zombies.forEach((z, i) => expect(Math.hypot(z.pos.x - v.pos.x, z.pos.y - v.pos.y)).toBeCloseTo(at[i]!, 1));
+    // and the top speed suffers while they hang on
+    for (let i = 0; i < 200; i++) {
+      step(g, { dx: 1, dy: 0 }, DT);
+      const on = g.zombies.filter((z) => z.latch === v.id).length;
+      expect(Math.abs(v.speed)).toBeLessThanOrEqual(VEHICLES.sedan.maxSpeed * (1 - LATCH_DRAG * on) + 0.5);
+    }
+  });
+
+  it('driving fast shakes them off', () => {
+    const { g, v } = inCar(5);
+    g.zombies = [walker(100, { x: v.pos.x, y: v.pos.y + VEHICLES.sedan.width / 2 + 0.7 })];
+    for (let i = 0; i < 60; i++) step(g, IDLE, DT);
+    expect(g.zombies[0]!.latch).toBe(v.id);
+    v.speed = 14;
+    let shaken = false;
+    for (let i = 0; i < 90 && !shaken; i++) { step(g, { dx: 1, dy: 0 }, DT); shaken = g.events.some((e) => e.type === 'shaken'); }
+    expect(shaken).toBe(true);
+    expect(g.zombies.every((z) => z.latch == null)).toBe(true);
+  });
+
+  it('a beaten car lets them reach you inside; getting out sets them on you', () => {
+    const { g, v } = inCar(5);
+    v.health = VEHICLES.sedan.health * 0.3;
+    g.zombies = [walker(100, { x: v.pos.x, y: v.pos.y + VEHICLES.sedan.width / 2 + 0.7 })];
+    for (let i = 0; i < 120; i++) step(g, IDLE, DT);
+    expect(g.player.health).toBeLessThan(PLAYER_HEALTH);
+    g.player.health = PLAYER_HEALTH;
+    if (playerVehicle(g)) step(g, USE, DT); // out
+    expect(g.zombies[0]!.latch == null).toBe(true);
+    expect(g.zombies[0]!.alertT).toBeGreaterThan(0);
+  });
+
+  it('on a bike they go for the rider', () => {
+    const { g, v } = inCar(5, 'bike');
+    g.zombies = [walker(100, { x: v.pos.x, y: v.pos.y + 1.1 })];
+    for (let i = 0; i < 90; i++) step(g, IDLE, DT);
+    expect(g.player.health).toBeLessThan(PLAYER_HEALTH);
+    expect(g.zombies[0]!.latch == null).toBe(true);
   });
 });
 

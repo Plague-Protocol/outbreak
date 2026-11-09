@@ -575,9 +575,11 @@ export class GameView {
     }
     this.camera.lookAt(this.focus.x, 1, this.focus.z);
 
-    // --- player (hidden inside a vehicle)
+    // --- player (hidden inside a car; astride a bike)
     const caught = s.phase === 'lost' && s.lossReason === 'caught';
-    this.player.root.visible = !car;
+    const bike = car?.kind === 'bike' ? car : null;
+    this.player.root.visible = !car || !!bike;
+    if (bike && !caught) { this.player.setUpper(null); this.player.play('Idle', { fade: 0.2 }); }
     if (caught && !this.wasCaught) { this.wasCaught = true; this.player.setUpper(null); this.player.play('Death', { once: true, fade: 0.15 }); }
     else if (!caught && !car) {
       const hold = s.hold.taskId;
@@ -595,6 +597,10 @@ export class GameView {
       else this.player.setUpper(null);
     }
     this.player.update(p.x, p.y, s.player.heading, dt, true);
+    if (bike) { // on the seat, behind the tank
+      this.player.root.position.x -= Math.cos(bike.heading) * 0.45;
+      this.player.root.position.z -= Math.sin(bike.heading) * 0.45;
+    }
     this.updateGun(s, !car && !caught && !s.hold.taskId && !s.work);
 
     // flashlight from the chest (or headlights from the car), pointing where you face
@@ -817,6 +823,7 @@ export class GameView {
         a.play('ZAttack', { once: true, fade: 0.08, timeScale: 0.75 / ATTACK_WINDUP[z.kind] });
         break;
       case 'feed': a.play('ZAttack', { fade: 0.2, timeScale: 0.8 }); break;
+      case 'cling': a.play('ZAttack', { fade: 0.15, timeScale: 1.1 }); break; // clawing at the car
       default:
         if (z.kind === 'runner' && z.speed > 2) a.play('Sprint', { timeScale: a.rateFor('Sprint', z.speed), fade: 0.2 });
         else if (z.speed > 0.1) a.play('ZWalk', { timeScale: a.rateFor('ZWalk', z.speed), fade: 0.25 });

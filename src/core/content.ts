@@ -52,6 +52,8 @@ export interface Story {
   chapters: Array<{ card: string; sub: string }>;
   arrive: { other: string[]; final: string[] };
   tier: string[][];
+  /** Said the first time you get in a car, or on a bike, in a run: what the engine does. */
+  vehicle?: { car: string[]; bike: string[] };
   endings: { won: Ending; caught: Ending; time: Ending; sealed: Ending };
 }
 
@@ -126,7 +128,7 @@ export function validate(c: Content): string[] {
   const st = c.story;
   if (!st?.intro?.lines?.length || !st.chapters?.length || !st.arrive || !Array.isArray(st.tier) || !st.endings) out.push('the story section is incomplete');
   else {
-    [...st.intro.lines, ...st.arrive.other, ...st.arrive.final, ...st.tier.flat()].forEach((s) => line(s, 'story'));
+    [...st.intro.lines, ...st.arrive.other, ...st.arrive.final, ...st.tier.flat(), ...(st.vehicle?.car ?? []), ...(st.vehicle?.bike ?? [])].forEach((s) => line(s, 'story'));
     for (const k of ['won', 'caught', 'time', 'sealed'] as const) if (!st.endings[k]?.title || !st.endings[k]?.text) out.push(`story: no ${k} ending`);
   }
   c.groups?.forEach((g, i) => {

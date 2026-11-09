@@ -1,4 +1,4 @@
-import { clearLeft, currentTask, finalChapter, interactionFor, isGun, playerVehicle, requiredDone, taskTarget, type GameState } from '../core/state';
+import { clearLeft, currentTask, finalChapter, interactionFor, isGun, latchedOn, playerVehicle, requiredDone, taskTarget, type GameState } from '../core/state';
 import { ending, exitLabel, objectiveFor, shortName, verbFor } from '../core/story';
 import { CHAPTERS, GEAR, PLAYER_HEALTH, VEHICLES, WEAPON_NAMES } from '../core/config';
 import type { Interaction } from '../core/types';
@@ -128,8 +128,10 @@ export class Hud {
     this.carHealth.style.display = car ? 'block' : 'none';
     if (car) {
       const fuel = Math.round(car.fuel * 100);
-      this.carHealth.textContent = `Vehicle ${Math.round((car.health / VEHICLES[car.kind].health) * 100)}%  ·  Fuel ${fuel}%${s.pumping ? ' (filling)' : fuel === 0 ? ' (empty)' : ''}`;
-      this.carHealth.style.color = fuel < 15 ? '#ff8a6a' : '';
+      const on = latchedOn(s, car.id);
+      const hp = Math.round((car.health / VEHICLES[car.kind].health) * 100);
+      this.carHealth.textContent = `${car.kind === 'bike' ? 'Bike' : 'Car'} ${hp}%  ·  Fuel ${fuel}%${s.pumping ? ' (filling)' : fuel === 0 ? ' (empty)' : ''}${on ? `  ·  ${on} on it!` : ''}`;
+      this.carHealth.style.color = fuel < 15 || on > 0 || hp < 40 ? '#ff8a6a' : '';
     }
     const throwable = !car && s.arsenal.bottles > 0;
     this.throwBtn.style.display = throwable ? 'flex' : 'none';

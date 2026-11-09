@@ -44,6 +44,16 @@
         "Emergency Radio|The helicopter is on the pad and loading. If you are still out there... run. Don't stop for anything."
       ]
     ],
+    "vehicle": {
+      "car": [
+        "Sam|Keys in it. But an engine is the loudest thing left in this city. Every one of them for blocks will hear it and come.",
+        "Sam|If they get hold of it they'll hang on and claw their way in. Keep it fast to shake them off, and if it's falling apart, get out before it's a tin can with me inside."
+      ],
+      "bike": [
+        "Sam|A bike. Quick, and quieter than a car, but they'll still hear it.",
+        "Sam|Nothing between me and them on this. Don't stop near a crowd."
+      ]
+    },
     "endings": {
       "won": {
         "title": "EVACUATED",

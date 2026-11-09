@@ -41,8 +41,13 @@ pixel ratio, `?lights=0..6` number of real point lights, `?zoom=N` camera span.
 - **Objectives are safe:** while you work an objective or talk to someone (and for a second
   after), the zombies that were after you hold back and wait. Anything you take (keys, keycard,
   map, supplies) lies where you can see it and is gone once taken.
-- **Drive:** push the stick where you want to go and the car steers there; push back against the
-  nose to reverse. Run zombies down. Crashes and clawing zombies damage the vehicle until it dies.
+- **Drive:** about ten vehicles a district, half of them motorbikes. Push the stick where you want
+  to go and it steers there; push back against the nose to reverse. Run zombies down. A vehicle is
+  not a safe room: the engine calls every zombie within earshot, again and again while it runs.
+  Get slow near them and they **grab hold** (up to four), ride along clawing at it and drag its top
+  speed down; drive fast to shake them off (a crash throws them). Once a car is beaten below 40%
+  the glass is gone and the ones on it reach you. If it dies, you are thrown out among them. On a
+  bike nothing grabs the bike: they go for you. You are told this the first time you get in.
 - **Map:** the minimap (top right) is rotated to match the screen. Tap it or press M for the full
   city map (pauses the game).
 - **Weapons:** you start with a pistol and a police baton. Baseball bats, a machete, shotguns and
@@ -145,7 +150,7 @@ poses play on the upper body only, over whatever the legs are doing. Credits:
 
 Our own models, drawn in code by `tools/build-models.mjs` (side profiles extruded with rounded
 edges, turned wheels and bats) into `public/assets/models/models.glb`: sedan, pickup, van, a
-motorbike (not ridable yet), pistol, shotgun, rifle, baton, bat and machete. Each is one
+motorbike, pistol, shotgun, rifle, baton, bat and machete. Each is one
 vertex-coloured mesh (one draw call; vehicles add one for their lights). Parts in the marker colour
 (magenta) take a **finish** at load: a car's paint, a gun's furniture. That is the hook for personal
 assets: same model, the owner's finish (`modelGeometry(name, finish)` in `src/render/models.ts`).

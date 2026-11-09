@@ -38,8 +38,24 @@ export const VEHICLES = {
   sedan: { length: 6.4, width: 2.9, maxSpeed: 17, accel: 11, reverse: 6, steer: 2.4, health: 100 },
   pickup: { length: 6.8, width: 3.0, maxSpeed: 15, accel: 10, reverse: 5.5, steer: 2.1, health: 140 },
   van: { length: 7.4, width: 3.1, maxSpeed: 13, accel: 8, reverse: 5, steer: 1.8, health: 180 },
+  // quick and nimble, but nothing between you and them: they reach the rider, not the bike
+  bike: { length: 3.2, width: 1.1, maxSpeed: 18, accel: 13, reverse: 3, steer: 3.0, health: 60 },
 } as const;
-export const VEHICLE_COUNT = 16;
+export const VEHICLE_COUNT = 10; // a few, not a car park: about half of them bikes
+/** Share of each kind among the parked vehicles (in order; the rest are vans). */
+export const VEHICLE_MIX = { bike: 0.45, sedan: 0.25, pickup: 0.18 } as const;
+// An engine is loud: everything within earshot comes, again and again while it runs.
+export const ENGINE_NOISE = { car: 28, bike: 20 } as const; // radius, units
+export const ENGINE_NOISE_EVERY = 1.5; // seconds
+// They grab hold of a car that is slow enough to reach and claw at it.
+export const LATCH_MAX = 4; // on one vehicle at once
+export const LATCH_DAMAGE = 4; // to the vehicle, per clawing
+export const LATCH_EVERY = 1.1; // seconds between clawings, each
+export const LATCH_SHAKE_SPEED = 10; // drive faster than this...
+export const LATCH_GRIP = 1.3; // ...for this long and it loses its grip
+export const LATCH_DRAG = 0.08; // top speed lost per one hanging on
+export const BREACH_AT = 0.4; // below this share of its health, the ones on it reach the driver
+export const BREACH_DAMAGE = 6;
 export const RUN_OVER_SPEED = 4; // above this a car knocks zombies down
 export const CRATE_COUNT = 22;
 export const AMMO_PICKUPS = 10;

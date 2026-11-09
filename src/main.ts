@@ -4,7 +4,7 @@ import {
 } from './core/state';
 import {
   briefFor, chapterCard, chapterLines, doneFor, escortBehind, exitLabel, exitLocked, exitOpen, intro, lockedTask, objectiveFor,
-  partsReady, shortName, survivorLines, tierLines, type Line,
+  partsReady, shortName, survivorLines, tierLines, vehicleLines, type Line,
 } from './core/story';
 import type { GameEvent, Task, TaskId } from './core/types';
 import { setContent, stepDef, type Content } from './core/content';
@@ -48,6 +48,8 @@ const dialogue = new Dialogue();
 const talk = new Talk();
 /** Story lines to show in the Talk panel at the end of this frame (the game waits while it is open). */
 const convo: Line[] = [];
+/** The engine warnings already given this night (once for a car, once for a bike). */
+const warned = new Set<string>();
 const sound = new Sound();
 const hud = new Hud({
   retry: () => begin(restartChapter(state), false),
@@ -105,6 +107,7 @@ function begin(fresh: GameState, withIntro: boolean): void {
   storePage.hide();
   if (talk.open) talk.close();
   convo.length = 0;
+  if (fresh.chapter === 0) warned.clear();
   paused = false;
   controls.enabled = true;
   if (cityMap.open) cityMap.toggle();
@@ -248,9 +251,13 @@ function narrate(events: readonly GameEvent[]): void {
         break;
       case 'vehicle-enter': {
         const v = state.vehicles.find((x) => x.id === e.id);
-        hud.toast(v && v.fuel < 0.15 ? 'Almost no fuel. Find a jerrycan or the gas station.' : 'Drive with the stick. Run them down.');
+        const bike = v?.kind === 'bike';
+        if (v && !warned.has(bike ? 'bike' : 'car')) { warned.add(bike ? 'bike' : 'car'); convo.push(...vehicleLines(bike)); }
+        hud.toast(v && v.fuel < 0.15 ? 'Almost no fuel. Find a jerrycan or the gas station.' : 'Drive with the stick. The engine draws them in.');
         break;
       }
+      case 'latched': hud.toast(e.count > 1 ? `${e.count} hanging on! Speed up to shake them off.` : 'One grabbed hold! Speed up to shake it off.'); view.shake(0.3); break;
+      case 'vehicle-breached': hud.toast('The glass is gone. They can reach you! Shake them off or get out.'); view.shake(0.6); break;
       case 'out-of-fuel': hud.toast('Out of fuel. It rolls to a stop.'); break;
       case 'refueled': hud.toast(e.from === 'pump' ? 'Filling up at the pump...' : 'Refuelled.'); break;
       case 'house-searched':

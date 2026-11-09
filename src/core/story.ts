@@ -97,6 +97,12 @@ export function exitLocked(missing: string[], final: boolean): Line[] {
   return [L(`${HERO}|The shutter's chained. ${missing.length > 0 ? `I still need ${missing.join(', ')}.` : ''}`)];
 }
 
+/** The first time you get in a car (or on a bike) in a run. */
+export function vehicleLines(bike: boolean): Line[] {
+  const v = content().story.vehicle;
+  return ((bike ? v?.bike : v?.car) ?? []).map(L);
+}
+
 export function tierLines(tier: number): Line[] {
   return (content().story.tier[tier] ?? []).map(L);
 }

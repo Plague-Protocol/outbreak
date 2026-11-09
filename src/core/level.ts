@@ -3,7 +3,7 @@ import { cellOf, distanceField, generateMap, PITCH, STREET, UNREACHABLE } from '
 import { chapterGroups, generateChain } from './tasks';
 import {
   AMBUSH_CHANCE, AMMO_PICKUPS, BOTTLE_PICKUPS, CRATE_COUNT, GEAR_PICKUPS, HOUSE_COUNT, JERRYCAN_PICKUPS, PLAYER_SPEED, STORE_NAMES,
-  SURVIVOR_COUNT, SURVIVOR_NAMES, TASK_HOLD_SECONDS, TIME_PAD, TIME_SLACK, VEHICLE_COUNT, VEHICLES,
+  SURVIVOR_COUNT, SURVIVOR_NAMES, TASK_HOLD_SECONDS, TIME_PAD, TIME_SLACK, VEHICLE_COUNT, VEHICLE_MIX, VEHICLES,
 } from './config';
 import type {
   Crate, House, Loot, MapData, Pickup, PickupKind, Store, Survivor, SurvivorRequest, SurvivorReward, Task, Vec2, Vehicle,
@@ -74,7 +74,8 @@ export function generateLevel(seed: number, opts: { night?: number; chapter?: nu
   }
   const vehicles: Vehicle[] = chosen.map((p, i) => {
     const r = next(rng);
-    const kind: VehicleKind = r < 0.5 ? 'sedan' : r < 0.8 ? 'pickup' : 'van';
+    const m = VEHICLE_MIX;
+    const kind: VehicleKind = r < m.bike ? 'bike' : r < m.bike + m.sedan ? 'sedan' : r < m.bike + m.sedan + m.pickup ? 'pickup' : 'van';
     return { id: i + 1, kind, pos: { x: p.x, y: p.y }, heading: p.heading, speed: 0, health: VEHICLES[kind].health, wrecked: false, tone: next(rng), fuel: 0 };
   });
 

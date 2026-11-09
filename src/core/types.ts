@@ -126,7 +126,7 @@ export interface Escort {
 
 export type ZombieKind = 'walker' | 'runner';
 /** What a zombie is doing; the renderer picks its animation from this, not from guessing. */
-export type ZombieAction = 'rise' | 'idle' | 'wander' | 'chase' | 'attack' | 'feed' | 'dead';
+export type ZombieAction = 'rise' | 'idle' | 'wander' | 'chase' | 'attack' | 'feed' | 'cling' | 'dead';
 
 export interface Zombie {
   id: number;
@@ -145,9 +145,14 @@ export interface Zombie {
   /** Drawn to a noise (a smashed bottle, a car alarm): walks there instead of hunting you. */
   lure?: Vec2 | null;
   lureT?: number;
+  /** Hanging on to a vehicle (its id), at a spot on its body (along, across, in its own frame). */
+  latch?: number | null;
+  latchAt?: Vec2;
+  /** How long it has been shaken at speed; it lets go after LATCH_GRIP seconds. */
+  latchT?: number;
 }
 
-export type VehicleKind = 'sedan' | 'pickup' | 'van';
+export type VehicleKind = 'sedan' | 'pickup' | 'van' | 'bike';
 
 export interface Vehicle {
   id: number;
@@ -286,6 +291,12 @@ export type GameEvent =
   | { type: 'vehicle-exit'; id: number }
   | { type: 'vehicle-crash'; id: number; force: number }
   | { type: 'vehicle-wrecked'; id: number }
+  /** One grabbed hold of the vehicle you are in (count: how many are on it now). */
+  | { type: 'latched'; id: number; count: number }
+  /** Shaken off at speed or thrown by a crash. */
+  | { type: 'shaken'; id: number }
+  /** The vehicle is so beaten that the ones on it can reach you inside. */
+  | { type: 'vehicle-breached'; id: number }
   | { type: 'zombie-attack'; id: number }
   | { type: 'house-searched'; id: number; loot: Loot; ambush: boolean }
   | { type: 'survivor-asked'; id: number; first: boolean }
