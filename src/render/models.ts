@@ -4,7 +4,7 @@
 import { type BufferGeometry, Color, Mesh, Vector3 } from 'three';
 import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
 
-export type ModelName = 'sedan' | 'pickup' | 'van' | 'bike' | 'pistol' | 'shotgun' | 'rifle' | 'baton' | 'bat' | 'machete';
+export type ModelName = 'sedan' | 'pickup' | 'van' | 'bike' | 'heli' | 'pistol' | 'shotgun' | 'rifle' | 'baton' | 'bat' | 'machete';
 
 interface Def { geo: BufferGeometry; lights?: BufferGeometry; finish: number; muzzle?: Vector3 }
 const defs = new Map<string, Def>();

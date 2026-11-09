@@ -349,6 +349,46 @@ vehicle('van', {
   MODELS.push(body);
 }
 
+// An army transport helicopter (rotors are separate: the game spins them). Nose along +x, 13 long.
+{
+  const m = new Model(), lights = new Model();
+  const OLIVE = PAINT(1), DOOR = 0x0b0d10, SKID = 0x24272b;
+  // fuselage from the side: a rounded nose, the cabin, tapering into the boom
+  m.profile(rounded([[3.2, 1.05], [3.0, 1.9], [1.8, 2.55], [-1.6, 2.65], [-2.6, 2.3], [-2.9, 1.6], [-2.4, 0.75], [-1.5, 0.5], [2.4, 0.5]],
+    [0.3, 0.4, 0.4, 0.3, 0.3, 0.2, 0.3, 0.2, 0.4]), 2.6, OLIVE, { bevel: 0.4 });
+  m.profile(rounded([[-0.6, 2.62], [-0.4, 3.05], [-2.0, 3.0], [-2.3, 2.55]], 0.15), 1.5, PAINT(0.88), { bevel: 0.2 }); // engine housing
+  m.cyl(-1.2, 3.2, 0, 0.16, 0.16, 0.5, 'y', 0x2a2c30, 10); // rotor mast
+  m.cyl(-1.2, 3.45, 0, 0.4, 0.4, 0.14, 'y', 0x2a2c30, 12); // hub
+  // tail boom, fin, tail rotor hub
+  m.cyl(-5.4, 2.05, 0, 0.5, 0.22, 5.4, 'x', OLIVE, 12);
+  m.profile(rounded([[-7.4, 1.9], [-7.8, 3.6], [-8.4, 3.7], [-8.3, 1.9]], 0.12), 0.18, PAINT(0.9), { bevel: 0.05 });
+  m.profile([[-7.0, 2.0], [-8.3, 2.0], [-8.3, 2.25], [-7.2, 2.2]], 1.6, PAINT(0.9)); // stabiliser
+  m.cyl(-8.0, 3.1, 0.2, 0.12, 0.12, 0.3, 'z', 0x2a2c30, 8);
+  // glass: windscreen and the cockpit's side windows
+  for (const sd of [-1, 1]) {
+    m.decal([[2.95, 1.25], [2.85, 1.85], [1.85, 2.42], [1.4, 2.42], [1.4, 1.3]], sd * 1.301, GLASS);
+    m.decal([[-1.9, 1.0], [-1.9, 2.3], [-0.2, 2.3], [-0.2, 1.0]], sd * 1.302, DOOR); // the open side door
+    m.box(-1.05, 2.38, sd * 1.32, 1.9, 0.06, 0.06, 0x3a3d40); // door rail
+    for (const x of [-1.6, -1.05, -0.5]) m.box(x, 1.55, sd * 0.9, 0.4, 0.5, 0.5, 0x3a3f33); // seats, seen through the door
+  }
+  m.add(new BoxGeometry(0.9, 0.03, 2.0), GLASS, at(2.55, 2.2, 0, rz(-0.55)));
+  m.box(1.0, 0.45, 0, 1.0, 0.08, 1.6, 0x1c1e21); // belly antenna plate
+  // skids
+  for (const sd of [-1, 1]) {
+    m.cyl(0.1, 0.12, sd * 1.5, 0.08, 0.08, 5.0, 'x', SKID, 8);
+    m.cyl(2.65, 0.25, sd * 1.5, 0.08, 0.08, 0.4, 'x', SKID, 8);
+    for (const x of [-1.4, 1.4]) m.box(x, 0.38, sd * 1.32, 0.12, 0.6, 0.12, SKID, { x: sd * 0.5, y: 0, z: 0, order: 'XYZ', isEuler: true });
+  }
+  // markings: a white star in a roundel on the boom, an ID number
+  for (const sd of [-1, 1]) m.box(-4.4, 2.05, sd * 0.42, 0.7, 0.5, 0.02, 0xe8e6dc);
+  lights.box(-8.35, 3.75, 0, 0.16, 0.16, 0.16, 0xff2a2a); // the blinking tail light
+  lights.box(3.18, 0.85, 0, 0.1, 0.18, 0.5, 0xfff3d0); // landing light
+  const body = m.build('heli');
+  body.add(lights.build('heli_lights'));
+  body.userData = { kind: 'vehicle', finish: 0x46523f };
+  MODELS.push(body);
+}
+
 // ---------------------------------------------------------------- weapons
 // About 1.3x real size (so they read from the street camera), barrel along +x, the middle of the grip
 // at the origin so the hand holds it. `muzzle` is where shots come out; `finish` the default finish.

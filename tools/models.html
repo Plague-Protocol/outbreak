@@ -7,7 +7,7 @@ import { AmbientLight, DirectionalLight, GridHelper, HemisphereLight, Perspectiv
 import { loadModels, modelGeometry, modelLights } from '/src/render/models.ts';
 await loadModels('/assets/models/models.glb');
 const q = new URLSearchParams(location.search);
-const NAMES = ['sedan', 'pickup', 'van', 'bike', 'pistol', 'shotgun', 'rifle', 'baton', 'bat', 'machete'];
+const NAMES = ['sedan', 'pickup', 'van', 'bike', 'heli', 'pistol', 'shotgun', 'rifle', 'baton', 'bat', 'machete'];
 let name = q.get('m') || 'sedan';
 let finish = q.get('finish') ? parseInt(q.get('finish'), 16) : undefined;
 const night = q.has('night');

@@ -29,6 +29,9 @@ pixel ratio, `?lights=0..6` number of real point lights, `?zoom=N` camera span.
   bigger waves. The third chapter ends at the helicopter. In the first two, the army seals the subway tunnels when
   the clock runs out (SEALED IN). A retry restarts the chapter with what
   you came into it with.
+- **Leaving a district:** you walk yourself down the subway stairs into the dark before the next
+  chapter card. At the end, the helicopter is on the pad with soldiers waiting; walk up and the
+  scene plays itself: one checks you over, you all climb in, it lifts off over the city.
 - **Guards and the chase:** some objectives come up guarded, a pack milling over the item (or its
   pieces) until it sees or hears you (35% of steps in the first district, 75% in the last). Finding
   the map sets a pack hunting you from all round for 45 seconds: run for the way out. Pieces can be
@@ -170,7 +173,7 @@ colour picker) at `/tools/models.html` under `npm run dev`.
 | Triangles | <= 50,000 | ~34,500-41,700 (the debris of the abandoned city adds a few thousand) |
 | Real lights | small | hemisphere + moon + flashlight/headlights + fill + 3 pooled + muzzle flash |
 | Zombie characters drawn | 12 nearest | the rest are simulated or dormant, not drawn |
-| JS bundle (gzip) | <= 220 KB | 218.4 KB at start (puzzle pages, 1.9 KB, load when first needed; task content 6 KB of JSON) |
+| JS bundle (gzip) | <= 220 KB | 218.6 KB at start, in one file (the store 3.0 KB, full map 1.7 KB and puzzle pages 1.9 KB load when first needed; task content is 6 KB of JSON) |
 | Character assets (gzip) | <= 450 KB | ~426 KB (GLB 282 KB + 4 skins 144 KB) |
 | Vehicle and weapon models (gzip) | <= 150 KB | 132 KB (622 KB raw); ~2,300 triangles a car, 500-1,200 a weapon |
 

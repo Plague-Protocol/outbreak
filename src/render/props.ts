@@ -550,13 +550,15 @@ export class SubwayExit {
   }
 }
 
+/** Which way the helicopter faces on its pad. */
+const EVAC_YAW = 0.6;
+
 export class Evac {
   readonly group = new Group();
   private heli = new Group();
   private rotor: Mesh;
   private tail: Mesh;
   private beam: Mesh;
-  private lift = 0;
 
   constructor() {
     const pad = new MeshBuilder().prism(0, 0.08, 0, 4.2, 0.16, 16, 0x3a3c40, 0x4a4c50);
@@ -573,54 +575,55 @@ export class Evac {
     const lamps = new MeshBuilder();
     for (const [x, z] of [[-5.8, -5.8], [5.8, 5.8]]) lamps.box(x!, 6.1, z!, 0.7, 0.45, 0.7, 0xf4f7ff);
     this.group.add(new Mesh(lamps.build(), new MeshBasicMaterial({ vertexColors: true })));
+    const flood = new PointLight(0xdfe8ff, 40, 18, 1.4); // the pad's floodlights, so the scene there reads
+    flood.position.set(0, 6, 0);
+    this.group.add(flood);
 
-    // the helicopter, built along +x
-    const body = new MeshBuilder()
-      .box(0, 1.1, 0, 5.2, 2.0, 2.2, 0x3b4636, 0x46523f)
-      .box(1.9, 1.0, 0, 1.6, 1.4, 1.9, 0x0e1318, 0x3b4636)
-      .box(-4.2, 1.5, 0, 4, 0.5, 0.5, 0x3b4636)
-      .box(-6.1, 2.1, 0, 0.6, 1.4, 0.2, 0x3b4636)
-      .box(0, 0, 0.9, 4, 0.12, 0.15, 0x1a1a1a)
-      .box(0, 0, -0.9, 4, 0.12, 0.15, 0x1a1a1a)
-      .box(0, 2.3, 0, 0.5, 0.5, 0.5, 0x222222);
-    this.heli.add(new Mesh(body.build(), new MeshLambertMaterial({ vertexColors: true })));
+    // the helicopter (nose along +x), sitting on the pad with its rotors turning
+    const body = new Mesh(modelGeometry('heli'), new MeshLambertMaterial({ vertexColors: true }));
+    const lit = new Mesh(modelLights('heli'), new MeshBasicMaterial({ vertexColors: true }));
+    lit.name = 'blink';
+    this.heli.add(body, lit);
     this.rotor = new Mesh(new BoxGeometry(11, 0.06, 0.4), new MeshBasicMaterial({ color: 0x111111, transparent: true, opacity: 0.55 }));
-    this.rotor.position.y = 2.6;
+    this.rotor.position.set(-1.2, 3.55, 0);
     const rotor2 = this.rotor.clone();
     rotor2.rotation.y = Math.PI / 2;
-    this.rotor.add(rotor2);
     rotor2.position.set(0, 0, 0);
+    this.rotor.add(rotor2);
     this.tail = new Mesh(new BoxGeometry(0.1, 1.6, 0.2), new MeshBasicMaterial({ color: 0x111111 }));
-    this.tail.position.set(-6.1, 2.1, 0.2);
-    const blink = new Mesh(new BoxGeometry(0.2, 0.2, 0.2), new MeshBasicMaterial({ color: 0xff2a2a }));
-    blink.position.set(-6.1, 2.9, 0);
-    blink.name = 'blink';
-    // searchlight: an additive cone down onto the pad
+    this.tail.position.set(-8.0, 3.1, 0.4);
+    // searchlight: an additive cone down from the nose, once it is up
     this.beam = new Mesh(
       new ConeGeometry(4.5, 12, 20, 1, true).translate(0, -6, 0),
       new MeshBasicMaterial({ color: 0xdfe8ff, transparent: true, opacity: 0.08, blending: AdditiveBlending, depthWrite: false, side: DoubleSide }),
     );
-    this.beam.position.set(1.5, 0.4, 0);
-    this.heli.add(this.rotor, this.tail, blink, this.beam);
-    this.heli.position.set(0, 13, 0);
-    this.heli.rotation.y = 0.6;
+    this.beam.position.set(2.5, 0.4, 0);
+    this.heli.add(this.rotor, this.tail, this.beam);
+    this.heli.rotation.y = EVAC_YAW;
     this.group.add(this.heli);
   }
 
-  update(dt: number, time: number, leaving: boolean): void {
-    this.rotor.rotation.y += dt * 22;
-    this.tail.rotation.x += dt * 30;
-    if (leaving) this.lift += dt;
-    this.heli.position.y = 13 + Math.sin(time * 1.3) * 0.3 + this.lift * this.lift * 2.5;
-    this.heli.position.x = this.lift * this.lift * 3;
-    this.heli.rotation.z = -Math.min(0.25, this.lift * 0.08);
-    (this.heli.getObjectByName('blink') as Mesh).visible = Math.sin(time * 6) > 0.4;
-    this.beam.visible = !leaving;
+  /** A point given in the helicopter's own frame (nose +x, door side +z), in the pad's frame. */
+  local(x: number, z: number): Vector3 {
+    const c = Math.cos(EVAC_YAW), s = Math.sin(EVAC_YAW);
+    return new Vector3(x * c + z * s, 0, -x * s + z * c);
   }
 
-  reset(): void {
-    this.lift = 0;
+  /** `lift`: seconds since it took off (null while it waits on the pad). */
+  update(dt: number, time: number, lift: number | null): void {
+    this.rotor.rotation.y += dt * (lift === null ? 16 : 24);
+    this.tail.rotation.z += dt * 30;
+    const k = lift ?? 0;
+    this.heli.position.y = 0.12 + k * k * 1.8;
+    const fwd = k * k * 1.4;
+    this.heli.position.x = Math.cos(EVAC_YAW) * fwd;
+    this.heli.position.z = -Math.sin(EVAC_YAW) * fwd;
+    this.heli.rotation.z = -Math.min(0.22, k * 0.12); // nose down as it pulls away
+    (this.heli.getObjectByName('blink') as Mesh).visible = Math.sin(time * 6) > 0.4;
+    this.beam.visible = k > 1.2;
   }
+
+  reset(): void {}
 }
 
 /** Short-lived combat effects from pools: tracers, muzzle flashes, blood and sparks. */

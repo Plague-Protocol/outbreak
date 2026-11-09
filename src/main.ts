@@ -18,7 +18,7 @@ import { Talk, type NextUp } from './ui/talk';
 import { Sound } from './audio/sound';
 import { CityMap } from './ui/map';
 import { GEAR, SAFE_AFTER, WEAPON_NAMES } from './core/config';
-import { StorePage } from './ui/store';
+import type { StorePage } from './ui/store';
 import { anonymousSession } from './seams/session';
 import { noopProgress, type RunResult } from './seams/progress';
 
@@ -57,8 +57,10 @@ const hud = new Hud({
 });
 view.cinematic = 0;
 let paused = false; // store or full map open
-const storePage = new StorePage((t) => hud.toast(t));
-const cityMap = new CityMap((open) => { paused = open || storePage.open; controls.enabled = !paused; });
+/** The weapon store's page, loaded the first time you walk into one (it is not in the main bundle). */
+let storePage: StorePage | null = null;
+const storeOpen = () => storePage?.open ?? false;
+const cityMap = new CityMap((open) => { paused = open || storeOpen(); controls.enabled = !paused; });
 
 $('mute').addEventListener('click', () => {
   sound.setMuted(!sound.muted);
@@ -104,7 +106,7 @@ if (debug) Object.defineProperty(window, '__outbreak', { get: () => ({ state, mo
 function begin(fresh: GameState, withIntro: boolean): void {
   state = fresh;
   hud.reset();
-  storePage.hide();
+  storePage?.hide();
   if (talk.open) talk.close();
   convo.length = 0;
   if (fresh.chapter === 0) warned.clear();
@@ -203,7 +205,7 @@ async function openPuzzle(t: Task): Promise<void> {
       else hud.toast('That is not it.');
       return ok;
     },
-    close: () => { paused = cityMap.open || storePage.open; controls.reset(); controls.enabled = !paused && !talk.open; },
+    close: () => { paused = cityMap.open || storeOpen(); controls.reset(); controls.enabled = !paused && !talk.open; },
   });
 }
 
@@ -284,7 +286,12 @@ function narrate(events: readonly GameEvent[]): void {
         if (!st) break;
         paused = true;
         controls.enabled = false;
-        storePage.show(state, st, () => { paused = cityMap.open; controls.enabled = !paused; });
+        const shown = state;
+        void (async () => {
+          if (!storePage) { const { StorePage: Page } = await import('./ui/store'); storePage = new Page((t) => hud.toast(t)); }
+          if (state !== shown || state.phase !== 'playing') { paused = cityMap.open; controls.enabled = !paused; return; }
+          storePage.show(state, st, () => { paused = cityMap.open; controls.enabled = !paused; });
+        })();
         break;
       }
       default: break;
@@ -336,8 +343,10 @@ function frame(now: number): void {
     narrate(pending);
     if (state.phase !== 'playing' && endTimer < 0) {
       // let the moment play out before the ending card
-      endTimer = state.phase === 'won' ? 1.4 : state.phase === 'cleared' ? 1.3 : state.lossReason === 'caught' ? 2.6 : 1.2;
-      if (state.phase === 'cleared') hud.cinema(true); // the bars close in as you go down the stairs
+      // won and cleared play out a scene first: met and checked by the soldiers, aboard, lifting off;
+      // or walking down into the subway
+      endTimer = state.phase === 'won' ? 7.8 : state.phase === 'cleared' ? 3.8 : state.lossReason === 'caught' ? 2.6 : 1.2;
+      if (state.phase === 'cleared' || state.phase === 'won') hud.cinema(true);
     }
   } else {
     acc = 0;

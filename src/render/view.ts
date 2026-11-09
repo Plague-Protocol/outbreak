@@ -73,6 +73,10 @@ export class GameView {
   private crates: InstancedMesh | null = null;
   private evac = new Evac();
   private exitDoor = new SubwayExit();
+  /** Soldiers waiting by the helicopter: two keep watch, one checks you over before you board. */
+  private soldiers: Actor[] = [];
+  /** The end of a chapter, played out: walking down into the subway, or boarding the helicopter. */
+  private outro: { kind: 'stairs' | 'heli'; t: number; from: Vector3 } | null = null;
   private wornGear = { vest: false, helmet: false };
   private effects: Effects;
   private rings: InstancedMesh;
@@ -117,6 +121,16 @@ export class GameView {
     }
 
     this.player = new Actor(assets, 'humanMaleA', true);
+    const fatigues = (assets.materials.humanMaleA as MeshLambertMaterial).clone();
+    fatigues.color.setHex(0x8f9a6c); // the same body in olive drab
+    for (let i = 0; i < 3; i++) {
+      const a = new Actor(assets, 'humanMaleA');
+      a.root.traverse((o) => { if ((o as Mesh).isMesh && (o as Mesh).material !== assets.xray) (o as Mesh).material = fatigues; });
+      a.holdInRightHand(weaponMesh('rifle'));
+      a.root.visible = false;
+      this.soldiers.push(a);
+      this.scene.add(a.root);
+    }
     this.scene.add(this.player.root, this.level, this.evac.group, this.exitDoor.group);
     this.effects = new Effects(this.scene);
 
@@ -246,6 +260,7 @@ export class GameView {
     this.scene.add(this.bottle);
     this.evac.group.position.set(s.safehouse.x, 0.1, s.safehouse.y);
     this.evac.reset();
+    this.outro = null;
     this.exitDoor.group.position.set(s.safehouse.x, 0, s.safehouse.y);
     this.exitDoor.group.rotation.y = (s.seed % 4) * (Math.PI / 2);
     this.wasCaught = false;
@@ -552,9 +567,12 @@ export class GameView {
 
     // --- camera: follow with a lead in the direction of travel; pull back when driving
     const lead = car ? 0.9 : 0.35;
-    this.target.set(p.x + s.player.vel.x * lead, 0, p.y + s.player.vel.y * lead);
+    if (!this.outro && (s.phase === 'cleared' || s.phase === 'won')) this.outro = { kind: s.phase === 'won' ? 'heli' : 'stairs', t: 0, from: new Vector3(p.x, 0, p.y) };
+    if (this.outro && s.phase === 'playing') this.outro = null; // a retry
+    if (this.outro) this.target.set(this.player.root.position.x, 0, this.player.root.position.z);
+    else this.target.set(p.x + s.player.vel.x * lead, 0, p.y + s.player.vel.y * lead);
     this.focus.lerp(this.target, 1 - Math.exp(-5 * dt));
-    this.zoom += ((car ? 1.55 + Math.min(0.5, Math.abs(car.speed) / 30) : 1) - this.zoom) * (1 - Math.exp(-2 * dt));
+    this.zoom += ((this.outro ? (this.outro.kind === 'heli' ? 1.3 : 1.15) : car ? 1.55 + Math.min(0.5, Math.abs(car.speed) / 30) : 1) - this.zoom) * (1 - Math.exp(-2 * dt));
     const c = this.cinematic;
     const dist = this.distance * this.zoom * (1 + (1 - c) * 1.6);
     const elev = ELEVATION + (1 - c) * 0.35;
@@ -578,7 +596,9 @@ export class GameView {
     // --- player (hidden inside a car; astride a bike)
     const caught = s.phase === 'lost' && s.lossReason === 'caught';
     const bike = car?.kind === 'bike' ? car : null;
-    this.player.root.visible = !car || !!bike;
+    this.player.root.visible = !car || !!bike || !!this.outro;
+    if (this.outro) this.playOutro(s, dt);
+    else {
     if (bike && !caught) { this.player.setUpper(null); this.player.play('Idle', { fade: 0.2 }); }
     if (caught && !this.wasCaught) { this.wasCaught = true; this.player.setUpper(null); this.player.play('Death', { once: true, fade: 0.15 }); }
     else if (!caught && !car) {
@@ -602,6 +622,7 @@ export class GameView {
       this.player.root.position.z -= Math.sin(bike.heading) * 0.45;
     }
     this.updateGun(s, !car && !caught && !s.hold.taskId && !s.work);
+    }
 
     // flashlight from the chest (or headlights from the car), pointing where you face
     const yawP = car ? Math.PI / 2 - car.heading : this.player.yawAngle;
@@ -694,8 +715,11 @@ export class GameView {
     const final = finalChapter(s);
     this.evac.group.visible = s.safehouseKnown && final;
     this.exitDoor.group.visible = s.safehouseKnown && !final;
-    if (final) this.evac.update(dt, this.time, s.phase === 'won');
-    else this.exitDoor.update(this.time, requiredDone(s));
+    if (final) { this.evac.update(dt, this.time, this.liftT()); this.updateSoldiers(s, dt); }
+    else {
+      for (const a of this.soldiers) a.root.visible = false;
+      this.exitDoor.update(this.time, requiredDone(s));
+    }
     this.updateGear(s);
 
     // --- zombies: the nearest ones get a character; corpses fall and stay a while
@@ -781,6 +805,100 @@ export class GameView {
       // the helmet's rim sits around the middle of the head (its bone is at the neck)
       this.player.wear(g === 'vest' ? 'chest' : 'head', on ? gearMesh(g) : null, new Vector3(0, g === 'vest' ? 0 : 0.36, 0));
     }
+  }
+
+  /** When the helicopter lifts off in the boarding scene (seconds after you are in). */
+  private static readonly BOARD = { walk: 1.6, check: 1.8, board: 1.6 };
+  private liftT(): number | null {
+    const o = this.outro;
+    if (o?.kind !== 'heli') return null;
+    const B = GameView.BOARD;
+    const t = o.t - (B.walk + B.check + B.board);
+    return t > 0 ? t : null;
+  }
+
+  /** Where each soldier stands by the helicopter (world), and which way they face. */
+  private soldierPost(i: number): { pos: Vector3; heading: number } {
+    const g = this.evac.group.position;
+    const spots = [[-1.0, 4.2, 0.3], [2.6, 3.4, 0.9], [-4.2, 3.0, -0.6]] as const; // in the helicopter's frame, door side
+    const [x, z, turn] = spots[i]!;
+    const at = this.evac.local(x, z).add(g);
+    const out = this.evac.local(x, z + 1);
+    const heading = Math.atan2(out.z - this.evac.local(x, z).z, out.x - this.evac.local(x, z).x) + turn;
+    return { pos: new Vector3(at.x, 0, at.z), heading };
+  }
+
+  /** The door they climb in by (world). */
+  private doorPoint(): Vector3 {
+    return this.evac.local(-1.0, 1.6).add(this.evac.group.position).setY(0);
+  }
+
+  private updateSoldiers(s: GameState, dt: number): void {
+    const show = s.safehouseKnown;
+    const o = this.outro?.kind === 'heli' ? this.outro : null;
+    const B = GameView.BOARD;
+    this.soldiers.forEach((a, i) => {
+      const post = this.soldierPost(i);
+      if (!show || (o && o.t > B.walk + B.check + B.board)) { a.root.visible = false; return; }
+      a.root.visible = true;
+      let pos = post.pos, heading = post.heading;
+      if (!o || o.t < B.walk) { // waiting: two keep watch, rifles up; the third waves you in
+        if (i === 0) { a.setUpper(null); a.play('Idle', { fade: 0.3 }); }
+        else { a.play('Idle', { fade: 0.3 }); a.setUpper('AimUpper'); }
+      } else if (o.t < B.walk + B.check) { // checking you over
+        const me = this.player.root.position;
+        if (i === 0) { heading = Math.atan2(me.z - pos.z, me.x - pos.x); a.setUpper(null); a.play('Interact', { fade: 0.2 }); }
+      } else { // everyone in
+        const k = Math.min(1, (o.t - B.walk - B.check) / (B.board * 0.8));
+        const door = this.doorPoint();
+        pos = pos.clone().lerp(door, k);
+        heading = Math.atan2(door.z - post.pos.z, door.x - post.pos.x);
+        a.setUpper(null);
+        a.locomote(k < 1 ? 3 : 0);
+        if (k >= 1) { a.root.visible = false; return; }
+      }
+      a.update(pos.x, pos.z, heading, dt, true);
+    });
+  }
+
+  /** The player walks themself out of the chapter: down the subway stairs, or up into the helicopter. */
+  private playOutro(s: GameState, dt: number): void {
+    const o = this.outro!;
+    o.t += dt;
+    this.player.setUpper(null);
+    this.updateGun(s, false);
+    let pos: Vector3, heading: number, speed = 2.4, y = 0;
+    const toward = (a: Vector3, b: Vector3) => Math.atan2(b.z - a.z, b.x - a.x);
+    if (o.kind === 'stairs') {
+      const g = this.exitDoor.group, r = g.rotation.y;
+      const W = (x: number, z: number) => new Vector3(g.position.x + x * Math.cos(r) + z * Math.sin(r), 0, g.position.z - x * Math.sin(r) + z * Math.cos(r));
+      const top = W(0, 3.3), bottom = W(0, -2.3);
+      const tA = Math.min(1.4, Math.max(0.4, o.from.distanceTo(top) / 4));
+      if (o.t < tA) { pos = o.from.clone().lerp(top, o.t / tA); heading = toward(o.from, top); speed = Math.min(3.5, o.from.distanceTo(top) / tA); }
+      else { // down the steps, sinking into the dark
+        const k = Math.min(1, (o.t - tA) / 2.2);
+        pos = top.clone().lerp(bottom, k);
+        heading = toward(top, bottom);
+        y = -Math.max(0, k - 0.12) * 3.4;
+        if (k >= 1) speed = 0;
+      }
+    } else {
+      const B = GameView.BOARD;
+      const checker = this.soldierPost(0).pos;
+      const meet = checker.clone().add(o.from.clone().sub(checker).setY(0).normalize().multiplyScalar(1.5));
+      const door = this.doorPoint();
+      if (o.t < B.walk) { pos = o.from.clone().lerp(meet, o.t / B.walk); heading = toward(o.from, meet); speed = Math.min(3.5, o.from.distanceTo(meet) / B.walk); }
+      else if (o.t < B.walk + B.check) { pos = meet; heading = toward(meet, checker); speed = 0; }
+      else {
+        const k = Math.min(1, (o.t - B.walk - B.check) / (B.board * 0.7));
+        pos = meet.clone().lerp(door, k);
+        heading = toward(meet, door);
+        if (k >= 1) { this.player.root.visible = false; speed = 0; }
+      }
+    }
+    this.player.locomote(speed);
+    this.player.update(pos.x, pos.z, heading, dt, true);
+    this.player.root.position.y = y;
   }
 
   /** The current gun sits in the right hand (parented to the hand bone, so it follows the arm). */

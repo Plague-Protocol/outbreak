@@ -57,7 +57,7 @@
     "endings": {
       "won": {
         "title": "EVACUATED",
-        "text": "Hands haul you up the ramp and the helicopter lifts before the door is shut. A medic checks your arms, then your eyes, then hands you water. Below, Port Halden goes dark street by street. Tonight, you are alive."
+        "text": "A soldier looks you over, your arms, your eyes, and waves you aboard. The helicopter lifts before the door is shut. Someone hands you water. Below, Port Halden goes dark street by street. Tonight, you are alive."
       },
       "caught": {
         "title": "TAKEN",
