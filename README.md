@@ -29,6 +29,11 @@ pixel ratio, `?lights=0..6` number of real point lights, `?zoom=N` camera span.
   bigger waves. The third chapter ends at the helicopter. In the first two, the army seals the subway tunnels when
   the clock runs out (SEALED IN). A retry restarts the chapter with what
   you came into it with.
+- **Guards and the chase:** some objectives come up guarded, a pack milling over the item (or its
+  pieces) until it sees or hears you (35% of steps in the first district, 75% in the last). Finding
+  the map sets a pack hunting you from all round for 45 seconds: run for the way out. Pieces can be
+  grabbed from a car or bike, and nothing is ever parked on top of one. (The route bot, which never
+  dodges or fights, wins 32/40 first chapters and 10/20 last chapters with this.)
 - **Move:** drag anywhere (floating stick) or WASD. A light push walks, a full push runs.
 - **Fire / swing:** hold FIRE (or Space). Aim assist picks the zombie in front of you. Gunfire
   is loud: everything within earshot comes looking. With a melee weapon the button reads SWING.

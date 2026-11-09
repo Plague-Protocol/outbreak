@@ -56,6 +56,12 @@ export const LATCH_GRIP = 1.3; // ...for this long and it loses its grip
 export const LATCH_DRAG = 0.08; // top speed lost per one hanging on
 export const BREACH_AT = 0.4; // below this share of its health, the ones on it reach the driver
 export const BREACH_DAMAGE = 6;
+// Some objectives are guarded: a pack standing over the thing you need (more often deeper in).
+export const GUARD_CHANCE = [0.35, 0.55, 0.75] as const; // per step, by chapter
+export const GUARDS = [2, 4, 5] as const; // how many, by chapter
+// The map found, the way out shown: they have your scent and come hunting.
+export const CHASE = [{ runner: 1, walker: 4 }, { runner: 4, walker: 6 }, { runner: 6, walker: 7 }] as const;
+export const CHASE_ALERT = 45; // seconds they hunt you wherever you are
 export const RUN_OVER_SPEED = 4; // above this a car knocks zombies down
 export const CRATE_COUNT = 22;
 export const AMMO_PICKUPS = 10;

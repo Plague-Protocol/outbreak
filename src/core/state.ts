@@ -5,7 +5,7 @@ import {
   RUN_OVER_SPEED, RUNNER_SIGHT, RUNNER_SPEED, SAFEHOUSE_RADIUS, SPAWNS_BY_TIER, SPEED_BOOST, TASK_HOLD_SECONDS,
   TASK_RADIUS, TIER_THRESHOLDS, USE_RADIUS, VEHICLES, WALKER_SIGHT_BY_TIER, WALKER_SPEED_BY_TIER, WAVE_SPAWN_MAX_DIST,
   ZOMBIE_ACTIVE_RADIUS, ZOMBIE_CAP, ZOMBIE_RADIUS, ZOMBIE_SPAWN_MIN_DIST, ZOMBIES_PER_BLOCK,
-  AIM_CONE, ALERT_SECONDS, BREACH_AT, BREACH_DAMAGE, ENGINE_NOISE, ENGINE_NOISE_EVERY, LATCH_DAMAGE, LATCH_DRAG, LATCH_EVERY, LATCH_GRIP,
+  AIM_CONE, ALERT_SECONDS, BREACH_AT, CHASE, CHASE_ALERT, GUARD_CHANCE, GUARDS, BREACH_DAMAGE, ENGINE_NOISE, ENGINE_NOISE_EVERY, LATCH_DAMAGE, LATCH_DRAG, LATCH_EVERY, LATCH_GRIP,
   LATCH_MAX, LATCH_SHAKE_SPEED, AMMO_PRICES, GUNS, KILL_REWARD, MEDKIT_PRICE, MELEE, MELEE_KNOCKBACK, PICKUP_RADIUS,
   SAFE_AFTER, STAGGER_SECONDS, START_AMMO, START_FUNDS, STORE_DOOR_RADIUS, UPGRADE_BASE, UPGRADE_EFFECT, UPGRADE_FACTOR,
   UPGRADE_LEVELS, WEAPON_PRICES, ZOMBIE_HEALTH,
@@ -133,6 +133,8 @@ export interface GameState {
   killerId: number | null;
   /** Seconds to the engine's next call to every zombie in earshot. */
   engineT: number;
+  /** Objectives already looked at for guards (each gets its chance once, when it comes up). */
+  guarded: TaskId[];
   zombies: Zombie[];
   vehicles: Vehicle[];
   crates: Crate[];
@@ -193,6 +195,7 @@ export function createGame(
     player: { pos: { ...level.spawn }, vel: { x: 0, y: 0 }, heading: 0, health: carry.health, invuln: 0, vehicleId: null },
     killerId: null,
     engineT: 0,
+    guarded: [],
     arsenal: cloneArsenal(carry.arsenal),
     pickups: level.pickups.map((p) => ({ ...p, pos: { ...p.pos } })),
     stores: level.stores.map((st) => ({ ...st, pos: { ...st.pos } })),
@@ -365,6 +368,58 @@ function populate(s: GameState): void {
 }
 
 /** A wave arrives from just out of sight. Far-off zombies are recycled to make room. */
+/** Make room under the cap by dropping the farthest one, if it is far enough not to be missed. */
+function roomFor(s: GameState): boolean {
+  if (s.zombies.length < ZOMBIE_CAP) return true;
+  let far = -1, farD = 0;
+  s.zombies.forEach((z, i) => { const d = dist(z.pos, s.player.pos); if (d > farD) { farD = d; far = i; } });
+  if (far < 0 || farD < ZOMBIE_ACTIVE_RADIUS) return false;
+  s.zombies.splice(far, 1);
+  return true;
+}
+
+/**
+ * When an objective comes up, it may be guarded: a pack milling about over the thing you need (or
+ * over the pieces lying around). They stay put until they see or hear you.
+ */
+function guardCurrent(s: GameState): void {
+  const t = currentTask(s);
+  if (!t || s.guarded.includes(t.id)) return;
+  s.guarded.push(t.id);
+  if (t.kind === 'clear' || t.effect === 'escort-end' || t.needsEscort) return; // those bring their own trouble
+  const ch = Math.min(s.chapter, GUARD_CHANCE.length - 1);
+  if (next(s.rng) >= GUARD_CHANCE[ch]!) return;
+  const spots = t.parts && t.got ? t.parts.filter((_, i) => !t.got![i]) : [t.pos];
+  let n = 0;
+  for (let k = 0; k < GUARDS[ch]!; k++) {
+    const at = spots[k % spots.length]!;
+    if (dist(at, s.player.pos) < 18 || !roomFor(s)) continue; // never drop them on top of you
+    const a = next(s.rng) * Math.PI * 2, r = range(s.rng, 4, 7);
+    addZombie(s, next(s.rng) < 0.25 + 0.15 * ch ? 'runner' : 'walker', { x: at.x + Math.cos(a) * r, y: at.y + Math.sin(a) * r }, false);
+    const z = s.zombies[s.zombies.length - 1]!;
+    z.lure = { ...at };
+    z.lureT = 1e9; // they stay with it
+    n++;
+  }
+  if (n) s.events.push({ type: 'guarded', id: t.id, count: n });
+}
+
+/** The way out is shown: a pack comes hunting from all round, and keeps coming for a while. */
+function releaseChase(s: GameState): void {
+  const c = CHASE[Math.min(s.chapter, CHASE.length - 1)]!;
+  const kinds: ZombieKind[] = [...Array<ZombieKind>(c.runner).fill('runner'), ...Array<ZombieKind>(c.walker).fill('walker')];
+  const ring = s.map.points.filter((p) => { const d = dist(p, s.player.pos); return d >= 24 && d <= 40; });
+  let n = 0;
+  for (const kind of kinds) {
+    if (!roomFor(s)) break;
+    const p = pick(s.rng, ring.length > 0 ? ring : s.map.points);
+    addZombie(s, kind, { x: p.x + range(s.rng, -2, 2), y: p.y + range(s.rng, -2, 2) }, true);
+    s.zombies[s.zombies.length - 1]!.alertT = CHASE_ALERT;
+    n++;
+  }
+  s.events.push({ type: 'chase', count: n });
+}
+
 function spawnWave(s: GameState, tier: number): void {
   const wave = SPAWNS_BY_TIER[tier]!;
   const more = CHAPTER_WAVES[Math.min(s.chapter, CHAPTER_WAVES.length - 1)]!;
@@ -426,8 +481,9 @@ export function step(s: GameState, input: Input, dt: number): GameState {
     updateWeapons(s, input, dt);
     if (input.throw) throwBottle(s);
     takePickups(s);
-    takeParts(s);
   }
+  takeParts(s);
+  guardCurrent(s);
 
   const driving = playerVehicle(s);
   if (driving) {
@@ -1368,7 +1424,7 @@ function completeTask(s: GameState, t: Task): void {
 /** What finishing a step does to the night (its effect, from the task content). */
 function stepDone(s: GameState, t: Task): void {
   switch (t.effect) {
-    case 'reveal-exit': s.safehouseKnown = true; break;
+    case 'reveal-exit': s.safehouseKnown = true; releaseChase(s); break;
     case 'escort-start': // they come out of hiding and follow you
       s.escort = { pos: { x: t.pos.x + 1, y: t.pos.y + 1 }, heading: 0, speed: 0, riding: false, ...t.escort! };
       break;
@@ -1432,7 +1488,9 @@ function takeParts(s: GameState): void {
   const t = currentTask(s);
   if (!t?.parts || !t.got) return;
   t.parts.forEach((q, i) => {
-    if (t.got![i] || dist(q, s.player.pos) > PICKUP_RADIUS + 0.4) return;
+    const v = playerVehicle(s);
+    const reach = PICKUP_RADIUS + 0.4 + (v ? VEHICLES[v.kind].length / 2 : 0); // lean out and grab it
+    if (t.got![i] || dist(q, s.player.pos) > reach) return;
     t.got![i] = true;
     const n = partsOf(t)!;
     s.events.push({ type: 'part-taken', id: t.id, got: n.got, of: n.of });

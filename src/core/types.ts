@@ -320,6 +320,10 @@ export type GameEvent =
   | { type: 'clear-start'; id: TaskId; count: number }
   | { type: 'flare-lit'; pos: Vec2 }
   | { type: 'horde'; pos: Vec2 }
+  /** A pack is standing over the current objective. */
+  | { type: 'guarded'; id: TaskId; count: number }
+  /** The way out is shown and they are coming for you. */
+  | { type: 'chase'; count: number }
   | { type: 'won' }
   | { type: 'lost'; reason: LossReason };
 

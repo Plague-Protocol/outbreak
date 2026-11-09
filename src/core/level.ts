@@ -68,9 +68,11 @@ export function generateLevel(seed: number, opts: { night?: number; chapter?: nu
     .filter((p) => dist(p, spawn) > 4)
     .sort((a, b) => dist(a, spawn) - dist(b, spawn))[0];
   const chosen = nearStart ? [nearStart] : [];
+  // never parked on top of something you need to pick up or stand at
+  const keepClear = tasks.flatMap((t) => [t.pos, ...(t.parts ?? [])]);
   for (const p of spots) {
     if (chosen.length >= VEHICLE_COUNT) break;
-    if (chosen.every((q) => dist(p, q) > 14)) chosen.push(p);
+    if (chosen.every((q) => dist(p, q) > 14) && keepClear.every((q) => dist(p, q) > 6)) chosen.push(p);
   }
   const vehicles: Vehicle[] = chosen.map((p, i) => {
     const r = next(rng);

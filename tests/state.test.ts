@@ -20,6 +20,7 @@ const DT = 1 / 30;
 function calmGame(seed = 1): GameState {
   const g = createGame(seed);
   g.zombies = []; // isolate from zombie behaviour
+  g.guarded = g.tasks.map((t) => t.id); // and from the packs guarding objectives
   return g;
 }
 
@@ -330,6 +331,63 @@ describe('vehicles are not safe', () => {
   });
 });
 
+describe('guards and the chase', () => {
+  it('some objectives come up guarded: a pack staying by it, more often deeper in', () => {
+    const rate = (chapter: number) => {
+      let guarded = 0, n = 0;
+      for (let seed = 1; seed <= 30; seed++) {
+        const g = createGame(seed, undefined, { chapter });
+        g.zombies = [];
+        const t = currentTask(g)!;
+        g.guarded = g.tasks.filter((x) => x !== t).map((x) => x.id);
+        step(g, IDLE, DT);
+        if (t.kind === 'clear' || t.needsEscort) continue;
+        n++;
+        if (g.zombies.length) {
+          guarded++;
+          const at = t.parts ? t.parts : [t.pos];
+          for (const z of g.zombies) expect(Math.min(...at.map((q) => Math.hypot(z.pos.x - q.x, z.pos.y - q.y)))).toBeLessThan(8);
+          for (let i = 0; i < 90; i++) step(g, IDLE, DT); // they stay with it while you are away
+          for (const z of g.zombies) expect(Math.min(...at.map((q) => Math.hypot(z.pos.x - q.x, z.pos.y - q.y)))).toBeLessThan(9);
+        }
+      }
+      return guarded / n;
+    };
+    const first = rate(0), last = rate(CHAPTERS - 1);
+    expect(first).toBeGreaterThan(0.15);
+    expect(last).toBeGreaterThan(first);
+  });
+
+  it('finding the map sets a pack hunting you', () => {
+    const g = calmGame(3);
+    for (const t of g.tasks) if (t.required && t.effect !== 'reveal-exit') { t.done = true; if (t.got) t.got.fill(true); }
+    const map = g.tasks.find((t) => t.effect === 'reveal-exit')!;
+    doTask(g, map);
+    expect(g.events.some((e) => e.type === 'chase') || g.zombies.length > 0).toBe(true);
+    expect(g.zombies.length).toBeGreaterThanOrEqual(5);
+    expect(g.zombies.every((z) => z.alertT > 0)).toBe(true);
+  });
+
+  it('pieces can be grabbed from a vehicle, and nothing is parked on them', () => {
+    for (let seed = 1; seed <= 12; seed++) {
+      const g = calmGame(seed);
+      for (const t of g.tasks) for (const q of [t.pos, ...(t.parts ?? [])]) {
+        for (const v of g.vehicles) expect(Math.hypot(v.pos.x - q.x, v.pos.y - q.y)).toBeGreaterThan(5.9);
+      }
+    }
+    const g = calmGame(2);
+    const t = g.tasks.find((x) => x.parts)!;
+    if (!t) return;
+    for (const x of g.tasks) { if (x === t) break; if (x.required) { x.done = true; if (x.got) x.got.fill(true); } }
+    const v = g.vehicles.find((x) => x.kind !== 'bike') ?? g.vehicles[0]!;
+    g.player.vehicleId = v.id;
+    v.pos = { x: t.parts![0]!.x + 2.8, y: t.parts![0]!.y };
+    g.player.pos = { ...v.pos };
+    step(g, IDLE, DT);
+    expect(t.got![0]).toBe(true);
+  });
+});
+
 describe('win and lose', () => {
   it('entering the safehouse early does not win', () => {
     const g = calmGame();
@@ -427,6 +485,7 @@ describe('zombies and escalation', () => {
 
   it('escalates as the clock runs down, with waves rising nearby', () => {
     const g = createGame(9);
+    g.guarded = g.tasks.map((t) => t.id);
     const before = g.zombies.length;
     g.remaining = g.timeLimit * 0.6;
     step(g, IDLE, 0.001);
