@@ -4,6 +4,7 @@ import {
   Vector3, WebGLRenderer, type Material,
 } from 'three';
 import { Actor, type CharacterAssets, type ClipName } from './characters';
+import { Crowd, type CrowdClip } from './crowd';
 import { buildCity, type CityMeshes, type LightSource } from './city';
 import { MeshBuilder } from './mesh';
 import { ArmyGate, barricadeMesh, barricadeRubble, bottleMesh, burningFlare, Effects, Evac, gearMesh, glint, SubwayExit, type StoryItem, pickupMesh, pulseGlint, storefrontMesh, storyItem, vehicleMesh, weaponMesh, wreckVehicle } from './props';
@@ -21,8 +22,6 @@ const POOL_LIGHTS = Math.max(0, Math.min(6, Number(params.get('lights') ?? 3)));
 /** Scenes where you crouch to work (the rest, you stand). */
 const KNEEL_SCENES = ['generator', 'gate', 'chained-gate', 'jerrycans', 'medkit', 'survivor-talk', 'fuse-box', 'junction-box', 'gas-valve', 'crossroads', 'fallen-guard', 'fallen-woman', 'fallen-soldier', 'crashed-bus', 'phone-booth'];
 const FOG = 0x0a0e16; // a dark night blue, not black: the far streets fade into it
-const MAX_VISIBLE_ZOMBIES = 20; // nearest ones get a skinned character; the rest are off screen anyway
-const MAX_VISIBLE_CORPSES = 12; // the nearest bodies are drawn (posed once, never animated again)
 
 /** Soft dark blob for contact shadows (generated). */
 function blobTexture(): CanvasTexture {
@@ -46,12 +45,12 @@ export class GameView {
   private player: Actor;
   private gun: Mesh | null = null;
   private gunKind: WeaponKind | null = null;
-  private zombies = new Map<number, Actor>();
-  private actorPool: Actor[] = [];
+  /** Every zombie and body in view, in two draw calls. */
+  private crowd: Crowd;
+  /** How many are drawn (set by the quality level): the nearest zombies, the nearest bodies. */
+  limits = { zombies: 70, bodies: 40 };
   /** People at the steps: `alive` ones move (the fallen do not); `leaves` ones are gone once it is done. */
   private extras: Array<{ actor: Actor; task: TaskId; alive: boolean; leaves: boolean; door?: Vector3 }> = [];
-  /** Bodies in the street, by zombie id. */
-  private corpses = new Map<number, Actor>();
   /** People walking in through a door (handed over), then gone. */
   private walkers: Array<{ actor: Actor; to: Vector3 }> = [];
   /** Objective props that change with the task: items you take vanish, the gate swings open. */
@@ -114,7 +113,7 @@ export class GameView {
 
   constructor(private container: HTMLElement, private assets: CharacterAssets) {
     this.renderer = new WebGLRenderer({ antialias: false, stencil: true, powerPreference: 'high-performance' });
-    this.setSaver(false);
+    this.setQuality(0);
     this.renderer.setClearColor(FOG);
     container.appendChild(this.renderer.domElement);
     this.scene.fog = new Fog(FOG, 30, 80);
@@ -133,6 +132,8 @@ export class GameView {
     }
 
     this.player = new Actor(assets, 'humanMaleA', true);
+    this.crowd = new Crowd(assets);
+    this.scene.add(this.crowd.group);
     const fatigues = (assets.materials.humanMaleA as MeshLambertMaterial).clone();
     fatigues.color.setHex(0x8f9a6c); // the same body in olive drab
     for (let i = 0; i < 3; i++) {
@@ -154,7 +155,7 @@ export class GameView {
     this.shadows = new InstancedMesh(
       new PlaneGeometry(1.6, 1.6).rotateX(-Math.PI / 2),
       new MeshBasicMaterial({ map: blobTexture(), transparent: true, depthWrite: false }),
-      MAX_VISIBLE_ZOMBIES + 10,
+      180, // every zombie drawn, and the people
     );
     for (const m of [this.rings, this.beams, this.shadows]) { m.frustumCulled = false; m.count = 0; this.scene.add(m); }
     this.shadows.renderOrder = 1;
@@ -170,12 +171,14 @@ export class GameView {
   }
 
   /**
-   * Pixels drawn: phones (3x screens) at 1.5x rather than 2x is about half the fill work for a
-   * small difference at arm's length; battery saver goes to 1.25x. `?dpr=` overrides.
+   * How much it draws, 0 (full) to 2 (lightest): pixel density (phones, 3x screens, start at 1.5x:
+   * half the fill work of 2x for a small difference at arm's length), and how many of the infected
+   * and the dead are drawn (the nearest; the rest are off at the edges anyway). `?dpr=` overrides.
    */
-  setSaver(saver: boolean): void {
+  setQuality(level: number): void {
     const phone = window.matchMedia?.('(pointer: coarse)').matches;
-    const cap = Number(params.get('dpr')) || (saver ? 1.25 : phone ? 1.5 : 2);
+    const cap = Number(params.get('dpr')) || [phone ? 1.5 : 2, 1.25, 1][level]!;
+    this.limits = [{ zombies: 70, bodies: 40 }, { zombies: 45, bodies: 24 }, { zombies: 28, bodies: 12 }][level]!;
     this.renderer.setPixelRatio(Math.min(window.devicePixelRatio, cap));
     if (this.size.w) { this.size = { w: 0, h: 0 }; this.resize(); }
   }
@@ -225,12 +228,9 @@ export class GameView {
       this.lightSources.push({ pos: new Vector3(st.pos.x, 4.2, st.pos.y), color: 0xff5040, kind: 'lamp', broken: false });
     }
 
-    for (const a of this.zombies.values()) { this.scene.remove(a.root); this.actorPool.push(a); }
-    this.zombies.clear();
+    this.crowd.reset();
     for (const e of this.extras) { this.scene.remove(e.actor.root); e.actor.dispose(); }
     this.extras = [];
-    for (const a of this.corpses.values()) { this.scene.remove(a.root); this.actorPool.push(a); }
-    this.corpses.clear();
     for (const w of this.walkers) { this.scene.remove(w.actor.root); w.actor.dispose(); }
     this.walkers = [];
     this.taskItems = [];
@@ -780,28 +780,21 @@ export class GameView {
     if (this.outro) { const r = this.player.root; if (r.visible && r.position.y > -0.2) shadowAt(r.position.x, r.position.z); }
     else if (!caught && !car) shadowAt(p.x, p.y);
     const reach = this.distance * this.zoom * 0.9;
-    const visible = s.zombies
-      .map((z) => ({ z, d: Math.abs(z.pos.x - this.focus.x) + Math.abs(z.pos.y - this.focus.z) }))
-      .filter((q) => q.d < reach)
-      .sort((a, b) => a.d - b.d)
-      .slice(0, MAX_VISIBLE_ZOMBIES);
-    const keep = new Set(visible.map((q) => q.z.id));
-    for (const [id, a] of this.zombies) {
-      if (!keep.has(id)) { this.scene.remove(a.root); this.zombies.delete(id); this.actorPool.push(a); }
-    }
-    for (const { z } of visible) {
-      let a = this.zombies.get(z.id);
-      if (!a) {
-        a = this.actorPool.pop() ?? new Actor(this.assets, 'zombieMaleA');
-        a.setSkin(z.id % 2 === 0 ? 'zombieMaleA' : 'zombieFemaleA');
-        a.reset();
-        this.zombies.set(z.id, a);
-        this.scene.add(a.root);
-      }
-      this.animateZombie(a, z);
+    this.crowd.begin(dt);
+    const near = <T extends { pos: Vec2 }>(list: T[], n: number) => list
+      .map((q) => ({ q, d: Math.abs(q.pos.x - this.focus.x) + Math.abs(q.pos.y - this.focus.z) }))
+      .filter((v) => v.d < reach)
+      .sort((x, y) => x.d - y.d)
+      .slice(0, n)
+      .map((v) => v.q);
+    for (const z of near(s.zombies, this.limits.zombies)) {
+      const [clip, o] = this.zombieClip(z);
+      this.crowd.draw(z.id, z.pos.x, z.pos.y, z.heading, clip, dt, o);
       if (z.action !== 'dead') shadowAt(z.pos.x, z.pos.y);
-      a.update(z.pos.x, z.pos.y, z.heading, dt, true);
     }
+    // the dead stay where they fell, at the end of their fall
+    for (const c of near(s.corpses, this.limits.bodies)) this.crowd.draw(c.id, c.pos.x, c.pos.y, c.heading, 'Death', dt, { once: true, end: true });
+    this.crowd.end();
     for (const e of this.extras) {
       const t = s.tasks.find((x) => x.id === e.task);
       // someone at their door goes back inside; someone found comes out of hiding and follows you
@@ -817,24 +810,6 @@ export class GameView {
       w.actor.dispose();
       return false;
     });
-    // the dead stay where they fell: the nearest are drawn, posed at the end of their fall
-    const nearBodies = s.corpses
-      .map((c) => ({ c, d: Math.abs(c.pos.x - this.focus.x) + Math.abs(c.pos.y - this.focus.z) }))
-      .filter((q) => q.d < reach)
-      .sort((a, b) => a.d - b.d)
-      .slice(0, MAX_VISIBLE_CORPSES);
-    const bodies = new Set(nearBodies.map((q) => q.c.id));
-    for (const [id, a] of this.corpses) if (!bodies.has(id)) { this.scene.remove(a.root); this.corpses.delete(id); this.actorPool.push(a); }
-    for (const { c } of nearBodies) {
-      if (this.corpses.has(c.id)) continue;
-      const a = this.actorPool.pop() ?? new Actor(this.assets, 'zombieMaleA');
-      a.setSkin(c.id % 2 === 0 ? 'zombieMaleA' : 'zombieFemaleA');
-      a.reset();
-      a.play('Death', { once: true, fade: 0, startAt: 0.999 });
-      a.update(c.pos.x, c.pos.y, c.heading, 0.016, true);
-      this.corpses.set(c.id, a);
-      this.scene.add(a.root);
-    }
     this.shadows.count = shadowN;
     this.shadows.instanceMatrix.needsUpdate = true;
 
@@ -1043,22 +1018,21 @@ export class GameView {
     return 0;
   }
 
-  private animateZombie(a: Actor, z: Zombie): void {
-    if (z.staggerT > 0 && z.action !== 'dead') { a.play('Hit', { once: true, fade: 0.05, restart: false }); return; }
+  /** Which clip a zombie is on, and how it plays. */
+  private zombieClip(z: Zombie): [CrowdClip, { rate?: number; once?: boolean }] {
+    const g = (c: ClipName) => this.assets.groundSpeed.get(c) || 1;
+    if (z.staggerT > 0 && z.action !== 'dead') return ['Hit', { once: true }];
     switch (z.action) {
-      case 'rise': a.play('ZRise', { once: true, fade: 0 }); break;
-      case 'idle': a.play('ZIdle', { fade: 0.3 }); break;
-      case 'dead': a.play('Death', { once: true, fade: 0.1, timeScale: 1.4 }); break;
-      case 'attack':
-        // time the swing so it lands as the wind-up ends
-        a.play('ZAttack', { once: true, fade: 0.08, timeScale: 0.75 / ATTACK_WINDUP[z.kind] });
-        break;
-      case 'feed': a.play('ZAttack', { fade: 0.2, timeScale: 0.8 }); break;
-      case 'cling': a.play('ZAttack', { fade: 0.15, timeScale: 1.1 }); break; // clawing at the car
+      case 'rise': return ['ZRise', { once: true }];
+      case 'idle': return ['ZIdle', {}];
+      case 'dead': return ['Death', { once: true, rate: 1.4 }];
+      case 'attack': return ['ZAttack', { once: true, rate: 0.75 / ATTACK_WINDUP[z.kind] }]; // the swing lands as the wind-up ends
+      case 'feed': return ['ZAttack', { rate: 0.8 }];
+      case 'cling': return ['ZAttack', { rate: 1.1 }]; // clawing at the car
       default:
-        if (z.kind === 'runner' && z.speed > 2) a.play('Sprint', { timeScale: a.rateFor('Sprint', z.speed), fade: 0.2 });
-        else if (z.speed > 0.1) a.play('ZWalk', { timeScale: a.rateFor('ZWalk', z.speed), fade: 0.25 });
-        else a.play('ZIdle', { fade: 0.3 });
+        if (z.kind === 'runner' && z.speed > 2) return ['Sprint', { rate: z.speed / g('Sprint') }];
+        if (z.speed > 0.1) return ['ZWalk', { rate: z.speed / g('ZWalk') }];
+        return ['ZIdle', {}];
     }
   }
 
@@ -1120,6 +1094,6 @@ export class GameView {
   }
 
   get stats(): { cityTriangles: number; lights: number; zombieActors: number } {
-    return { cityTriangles: this.city?.triangles ?? 0, lights: this.lightSources.length, zombieActors: this.zombies.size };
+    return { cityTriangles: this.city?.triangles ?? 0, lights: this.lightSources.length, zombieActors: this.crowd.drawn };
   }
 }

@@ -67,11 +67,35 @@ $('mute').addEventListener('click', () => {
   sound.setMuted(!sound.muted);
   $('mute').textContent = `Sound: ${sound.muted ? 'off' : 'on'}`;
 });
-// Battery saver: 30 frames a second and fewer pixels, for a phone that runs warm. Remembered.
-let saver = localStorage.getItem('outbreak.saver') === '1';
-const showSaver = () => { $('saver').textContent = `Saver: ${saver ? 'on' : 'off'}`; view.setSaver(saver); };
-$('saver').addEventListener('click', () => { saver = !saver; localStorage.setItem('outbreak.saver', saver ? '1' : '0'); showSaver(); });
-showSaver();
+// Frame rate: 30 a second on phones by default (half the drawing, and plenty for this game), 60 on
+// a computer; the button switches it, and it is remembered.
+const phone = window.matchMedia?.('(pointer: coarse)').matches ?? false;
+let fps30 = (localStorage.getItem('outbreak.fps') ?? (phone ? '30' : '60')) === '30';
+const showFps = () => { $('saver').textContent = fps30 ? '30 fps' : '60 fps'; };
+$('saver').addEventListener('click', () => { fps30 = !fps30; localStorage.setItem('outbreak.fps', fps30 ? '30' : '60'); showFps(); quality.reset(); });
+showFps();
+
+// Quality steps itself down if the device cannot keep up: phones start a step lighter, and a device
+// that once had to step down starts where it ended up. `?quality=0..2` fixes it.
+const quality = (() => {
+  const fixed = params.has('quality') ? Number(params.get('quality')) : null;
+  let level = fixed ?? Number(localStorage.getItem('outbreak.quality') ?? (phone ? 1 : 0));
+  let frames = 0, span = 0;
+  view.setQuality(level);
+  return {
+    /** A frame was drawn during play `dt` after the last one. */
+    tick(dt: number): void {
+      if (fixed !== null || level >= 2) return;
+      frames++;
+      span += dt;
+      if (span < 4) return;
+      const got = frames / span, want = fps30 ? 30 : 60;
+      frames = 0; span = 0;
+      if (got < want * 0.85) { level++; localStorage.setItem('outbreak.quality', String(level)); view.setQuality(level); }
+    },
+    reset(): void { frames = 0; span = 0; },
+  };
+})();
 
 startBtn.disabled = false;
 startBtn.textContent = 'Begin';
@@ -331,7 +355,7 @@ function frame(now: number): void {
   // and battery saver are fine at 30/s; play runs at the screen's rate. The sim's fixed step does
   // not care: it catches up on the time between frames.
   const still = (paused && !cityMap.open) || talk.open;
-  const gap = still ? 48 : saver || mode === 'title' ? 31 : 0;
+  const gap = still ? 48 : fps30 || mode === 'title' ? 31 : 0;
   if (gap && now - last < gap) { requestAnimationFrame(frame); return; }
   const dt = Math.min(0.1, (now - last) / 1000);
   last = now;
@@ -376,7 +400,8 @@ function frame(now: number): void {
   sound.update(state, pending, dt, (x, y) => view.screenX({ x, y }));
   view.react(state, pending);
   pending.length = 0;
-  if (mode === 'play' && (still || miniTick++ % 3 === 0)) cityMap.drawMini(state); // the minimap at 20/s is plenty
+  if (mode === 'play' && (still || miniTick++ % 3 === 0)) cityMap.drawMini(state);
+  if (mode === 'play' && !still && !paused) quality.tick(dt); else quality.reset(); // the minimap at 20/s is plenty
   cityMap.drawFull(state);
 
   const t1 = performance.now();
