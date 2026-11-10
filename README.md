@@ -188,22 +188,28 @@ colour picker) at `/tools/models.html` under `npm run dev`.
 
 | | Budget | Measured (worst case: 18 zombies around the player) |
 |---|---|---|
-| Draw calls | <= 60 | not yet re-measured since raising zombies drawn to 20 and adding 12 bodies (was 30-34 with 12) |
+| Draw calls | <= 40 | 16 with 24 zombies and 6 bodies on screen: the whole crowd is 2 calls (was one per zombie) |
 | Triangles | <= 50,000 | ~34,500-41,700 (the debris of the abandoned city adds a few thousand) |
 | Real lights | small | hemisphere + moon + flashlight/headlights + fill + 3 pooled + muzzle flash |
-| Zombie characters drawn | 20 nearest, plus 12 nearest bodies (posed once, not animated) | the rest are simulated or dormant, not drawn |
-| JS bundle (gzip) | <= 240 KB (raised from 220 on 2026-11-09) | 221.3 KB at start, in one file (the store 3.0 KB, full map 1.7 KB and puzzle pages 1.9 KB load when first needed; task content is 6 KB of JSON) |
+| Zombies drawn | the nearest 70 and 40 bodies (full), 45/24 (phones start here), 28/12 (lightest) | batched: animations baked into a bone texture at load (`src/render/crowd.ts`), posed on the GPU, no per-zombie animation work on the CPU |
+| JS bundle (gzip) | <= 240 KB (raised from 220 on 2026-11-09) | 222.2 KB at start, in one file (the store 3.0 KB, full map 1.7 KB and puzzle pages 1.9 KB load when first needed; task content is 6 KB of JSON) |
 | Character assets (gzip) | <= 450 KB | ~426 KB (GLB 282 KB + 4 skins 144 KB) |
 | Vehicle and weapon models (gzip) | <= 150 KB | 132 KB (622 KB raw); ~2,300 triangles a car, 500-1,200 a weapon |
 
 The worst case was measured at a store's door with 18 zombies around, on three nights; the
 busiest downtown spot reached 36 calls. Measured with `?debug` (`renderer.info`) in headless desktop Chrome with software rendering, so
 the frame rates it shows mean nothing for a phone. **Not yet measured on a real Android phone.**
-The levers there: `?lights=0`, `?dpr=1`, fewer zombie characters drawn.
+The levers there: `?lights=0`, `?dpr=1`, `?quality=2`.
 
-Phones get warm because the GPU draws the whole 3D scene every frame; it has nothing to do with
-there being no backend (a server would not take any of that drawing away). So: phones draw at 1.5x
-pixel density, not 2x (about half the pixels on a 3x screen); a held story moment or the store
-redraws 20 times a second, the title 30; the minimap redraws 20 times a second. **Saver** (in the
-HUD, remembered) runs the game at 30 frames a second at 1.25x. Cars are now ~2,300 triangles, so
-a street with several in view costs more than before: re-measure the worst case.
+Phones get warm because the graphics chip draws the whole 3D scene every frame; a backend cannot
+take that away (only video streaming could, at a cost per player and in mobile data). What keeps it
+down, all on the device:
+- **30 frames a second on phones** by default (the HUD button switches to 60, remembered); half the
+  drawing, plenty for this game. A held story moment or the store redraws 20 times a second.
+- **Quality that steps itself down:** level 0 (2x pixels on a computer, 1.5x on a phone; 70 zombies
+  and 40 bodies drawn), 1 (1.25x; 45 and 24), 2 (1x; 28 and 12). Phones start at 1. If play runs
+  below 85% of the target frame rate over four seconds, it drops a level and remembers it.
+  `?quality=0..2` fixes it.
+- **The crowd is batched:** every zombie and body in two draw calls, posed on the GPU from baked
+  animation, so a big horde costs little on the CPU. The minimap redraws 20 times a second.
+- Cars are ~2,300 triangles: a street with several in view costs more; re-measure the worst case.
