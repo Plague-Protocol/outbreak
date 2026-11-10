@@ -67,13 +67,10 @@ $('mute').addEventListener('click', () => {
   sound.setMuted(!sound.muted);
   $('mute').textContent = `Sound: ${sound.muted ? 'off' : 'on'}`;
 });
-// Frame rate: 30 a second on phones by default (half the drawing, and plenty for this game), 60 on
-// a computer; the button switches it, and it is remembered.
+// Frame rate: 30 a second on phones (half the drawing, and plenty for this game), 60 on a computer.
+// Nothing to set: `?fps=30|60` overrides, for testing.
 const phone = window.matchMedia?.('(pointer: coarse)').matches ?? false;
-let fps30 = (localStorage.getItem('outbreak.fps') ?? (phone ? '30' : '60')) === '30';
-const showFps = () => { $('saver').textContent = fps30 ? '30 fps' : '60 fps'; };
-$('saver').addEventListener('click', () => { fps30 = !fps30; localStorage.setItem('outbreak.fps', fps30 ? '30' : '60'); showFps(); quality.reset(); });
-showFps();
+const fps30 = (params.get('fps') ?? (phone ? '30' : '60')) === '30';
 
 // Quality steps itself down if the device cannot keep up: phones start a step lighter, and a device
 // that once had to step down starts where it ended up. `?quality=0..2` fixes it.
@@ -352,7 +349,7 @@ let miniTick = 0;
 
 function frame(now: number): void {
   // Draw only as often as it is worth: a held story moment or the store is still (20/s), the title
-  // and battery saver are fine at 30/s; play runs at the screen's rate. The sim's fixed step does
+  // and phones run at 30/s; a computer plays at the screen's rate. The sim's fixed step does
   // not care: it catches up on the time between frames.
   const still = (paused && !cityMap.open) || talk.open;
   const gap = still ? 48 : fps30 || mode === 'title' ? 31 : 0;

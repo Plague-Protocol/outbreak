@@ -47,7 +47,7 @@
   @keyframes pulse { 50% { opacity: .55; } }
   #task { font-size: 14px; text-align: right; max-width: 58%; line-height: 1.35; }
   #task small { opacity: .7; display: block; font-size: 12px; margin-top: 2px; }
-  #mute, #saver { pointer-events: auto; margin-top: 6px; background: rgba(0,0,0,.35); border: 1px solid rgba(255,255,255,.2); color: #ddd;
+  #mute { pointer-events: auto; margin-top: 6px; background: rgba(0,0,0,.35); border: 1px solid rgba(255,255,255,.2); color: #ddd;
     border-radius: 6px; font-size: 12px; padding: 3px 8px; }
 
   #arrow { position: fixed; top: 84px; left: 50%; transform: translateX(-50%); text-align: center; pointer-events: none; display: none;
@@ -252,7 +252,7 @@
     /* the objective sits left of the minimap, which takes the top-right corner */
     #task { font-size: 12px; max-width: 38%; margin-right: 88px; }
     #task small { font-size: 10.5px; }
-    #mute, #saver { margin-top: 4px; font-size: 10px; padding: 2px 6px; }
+    #mute { margin-top: 4px; font-size: 10px; padding: 2px 6px; }
     #minimap { width: 80px; height: 80px; top: calc(env(safe-area-inset-top, 0px) + 6px); right: var(--r); }
     #arrow { top: 54px; }
     #toast { top: 60px; }
@@ -295,7 +295,7 @@
 <div id="hud">
   <div id="clock"><small>LAST EVAC IN</small><div id="timer">0:00</div>
     <div id="vitals"><div id="health"><div id="health-bar"></div></div><div id="funds">$0</div><div id="gear"></div><div id="car-health"></div></div>
-    <button id="mute">Sound: on</button> <button id="saver">60 fps</button></div>
+    <button id="mute">Sound: on</button></div>
   <div id="task"></div>
 </div>
 <div id="arrow"><span id="arrow-icon">&#9650;</span><small id="arrow-dist"></small></div>

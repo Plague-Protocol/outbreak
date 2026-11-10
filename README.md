@@ -204,8 +204,8 @@ The levers there: `?lights=0`, `?dpr=1`, `?quality=2`.
 Phones get warm because the graphics chip draws the whole 3D scene every frame; a backend cannot
 take that away (only video streaming could, at a cost per player and in mobile data). What keeps it
 down, all on the device:
-- **30 frames a second on phones** by default (the HUD button switches to 60, remembered); half the
-  drawing, plenty for this game. A held story moment or the store redraws 20 times a second.
+- **30 frames a second on phones**, 60 on a computer, with nothing for the player to set (`?fps=60`
+  overrides for testing); half the drawing, plenty for this game. A held story moment or the store redraws 20 times a second.
 - **Quality that steps itself down:** level 0 (2x pixels on a computer, 1.5x on a phone; 70 zombies
   and 40 bodies drawn), 1 (1.25x; 45 and 24), 2 (1x; 28 and 12). Phones start at 1. If play runs
   below 85% of the target frame rate over four seconds, it drops a level and remembers it.
