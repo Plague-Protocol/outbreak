@@ -92,6 +92,8 @@ export interface Task {
   required: boolean;
   requires: TaskId[];
   pos: Vec2;
+  /** A step at someone's door: the point on the building's wall where the door is (pos is just outside). */
+  door?: Vec2;
   timeCost: number; // seconds removed from the clock on completion (optional tasks)
   reward: Reward | null;
   done: boolean;
@@ -301,6 +303,10 @@ export type GameEvent =
   | { type: 'latched'; id: number; count: number }
   /** Shaken off at speed or thrown by a crash. */
   | { type: 'shaken'; id: number }
+  /** Not enough seats for everyone you are bringing in. */
+  | { type: 'no-room'; need: number; seats: number }
+  /** They heard you start it: a swarm comes out of the side streets. */
+  | { type: 'swarm'; count: number }
   /** The vehicle is so beaten that the ones on it can reach you inside. */
   | { type: 'vehicle-breached'; id: number }
   | { type: 'zombie-attack'; id: number }

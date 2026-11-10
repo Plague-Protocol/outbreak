@@ -131,11 +131,11 @@ describe('chapters', () => {
     expect(g.phase).toBe('won');
   });
 
-  it('later districts are worse: runners in the crowd from the start', () => {
+  it('later districts are worse: more runners in the crowd', () => {
     const runners = (g: GameState) => g.zombies.filter((z) => z.kind === 'runner').length;
     const first = createGame(chapterSeed(4, 2));
     const last = createGame(chapterSeed(4, 2), undefined, { night: 4, chapter: 2 });
-    expect(runners(first)).toBe(0);
+    expect(runners(last) / last.zombies.length).toBeGreaterThan(runners(first) / first.zombies.length);
     expect(runners(last)).toBeGreaterThanOrEqual(3);
   });
 });

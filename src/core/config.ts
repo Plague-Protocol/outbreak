@@ -5,8 +5,8 @@ export const PLAYER_ACCEL = 16; // units/s^2: no instant starts, stops or turns
 export const PLAYER_RADIUS = 0.5;
 
 export const ZOMBIE_RADIUS = 0.5;
-export const WALKER_SPEED_BY_TIER = [1.2, 1.35, 1.5] as const; // a shuffle
-export const RUNNER_SPEED = 4.3; // slower than a sprinting player, faster than a walking one
+export const WALKER_SPEED_BY_TIER = [1.9, 2.15, 2.4] as const; // a fast, lurching walk: half your running speed
+export const RUNNER_SPEED = 4.9; // nearly as fast as you run: you can only just stay ahead
 export const WALKER_SIGHT_BY_TIER = [10, 13, 17] as const;
 export const RUNNER_SIGHT = 24;
 /** Zombies added near the player when each tier begins (tier 0 is the city's resting population). */
@@ -16,12 +16,13 @@ export const SPAWNS_BY_TIER = [
   { walker: 6, runner: 4 },
 ] as const;
 /** Resting population per block, by district. */
-export const ZOMBIES_PER_BLOCK = { downtown: 3, residential: 1.3, park: 1.2, industrial: 1.8, outskirts: 0.7, water: 0 } as const;
-export const ZOMBIE_CAP = 80;
+export const ZOMBIES_PER_BLOCK = { downtown: 3.6, residential: 1.8, park: 1.6, industrial: 2.3, outskirts: 1.2, water: 0 } as const;
+export const ZOMBIE_CAP = 110;
 export const ZOMBIE_SPAWN_MIN_DIST = 22; // never closer than this to the player
 export const WAVE_SPAWN_MAX_DIST = 45; // waves arrive from just out of sight
 export const ZOMBIE_ACTIVE_RADIUS = 60; // zombies further away are dormant (not simulated)
-export const CORPSE_SECONDS = 6;
+export const CORPSE_SECONDS = 2.5; // falling; then the body stays where it fell
+export const CORPSES_KEPT = 80; // bodies kept per district (the oldest go first)
 export const RISE_SECONDS = 1.5; // zombies that appear mid-run climb up off the ground first
 export const ATTACK_RANGE = 1.35; // starts a lunge
 export const ATTACK_REACH = 1.75; // the lunge lands if the player is still this close when it ends
@@ -49,6 +50,11 @@ export const ENGINE_NOISE = { car: 28, bike: 20 } as const; // radius, units
 export const ENGINE_NOISE_EVERY = 1.5; // seconds
 // They grab hold of a car that is slow enough to reach and claw at it.
 export const LATCH_MAX = 4; // on one vehicle at once
+// Start an engine and they come pouring out of the side streets, fast, to cut you off.
+export const SWARM = [6, 8, 10] as const; // runners, by chapter, when you set off
+export const SWARM_EVERY = 12; // seconds: more keep coming while you drive
+export const SWARM_SPEED = 9.5; // a runner hunting a vehicle: about as fast as a car in the streets
+export const SEATS = { bike: 2, sedan: 3, pickup: 4, van: 6 } as const; // passengers
 export const LATCH_DAMAGE = 4; // to the vehicle, per clawing
 export const LATCH_EVERY = 1.1; // seconds between clawings, each
 export const LATCH_SHAKE_SPEED = 10; // drive faster than this...
@@ -161,7 +167,7 @@ export const CHAPTER_BONUS = 0.5; // $ per second left on the clock when you lea
 export const CHAPTER_HEAL = 25; // you catch your breath on the way through
 /** Deeper in, it gets worse (the city is already at its population cap): a share of the resting
  * crowd are runners, and the waves are bigger. By chapter. */
-export const CHAPTER_RUNNERS = [0, 0.08, 0.15] as const;
+export const CHAPTER_RUNNERS = [0.1, 0.16, 0.22] as const;
 export const CHAPTER_WAVES = [1, 1.25, 1.5] as const;
 
 // ---- protective gear: takes a share of every hit and wears down doing it (from zombies now, and

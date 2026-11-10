@@ -344,7 +344,8 @@
         ],
         "done": [
           "Nora|We made it. They have medics in here, and a radio. Thank you. Go, find your tunnel."
-        ]
+        ],
+        "door": true
       }
     ],
     [
@@ -427,7 +428,8 @@
         ],
         "done": [
           "Sam|Green light. The bolts slide back. In."
-        ]
+        ],
+        "door": true
       }
     ],
     [
@@ -495,7 +497,7 @@
         "objective": "Find the boy hiding in the phone booth",
         "short": "the boy",
         "brief": [
-          "Emergency Radio|...a woman at the bakery, her son ran when it started, she thinks he's hiding somewhere on the square. His name is Leo..."
+          "Emergency Radio|...a woman calling from the bakery on the square. Her son ran when it started and she can't go out after him. She thinks he's hiding somewhere close. His name is Leo..."
         ],
         "done": [
           "Leo|Are you a policeman? Mum said to hide and not come out for anyone.",
@@ -509,15 +511,16 @@
         "effect": "escort-end",
         "needsEscort": true,
         "scene": "mother",
-        "objective": "Bring Leo to his mother at the bakery (he follows you)",
+        "objective": "Bring Leo home to the bakery (he follows you)",
         "short": "Leo's mother",
         "brief": [
           "Sam|The bakery. Keep him close."
         ],
         "done": [
-          "Rosa|Leo! Oh, Leo... thank you. Thank you. Take this, it's all the bread we have left.",
-          "Sam|Lock the door behind you."
-        ]
+          "Rosa|Leo! Inside, inside, quick... Thank you. Take this, it's all the bread we have left.",
+          "Sam|Bar the door behind you."
+        ],
+        "door": true
       }
     ],
     [
@@ -624,7 +627,8 @@
         "done": [
           "Grace|Water! Oh, bless you. The children haven't had any since this morning.",
           "Grace|The army trucks went east, toward the tunnels. That's all we know."
-        ]
+        ],
+        "door": true
       }
     ],
     [
@@ -710,7 +714,8 @@
         "done": [
           "Funmi|Inside, Tobi, inside. Ade, the bar on the door.",
           "Ade|We won't forget you. Go, we're safe now."
-        ]
+        ],
+        "door": true
       }
     ]
   ],

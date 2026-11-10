@@ -9,7 +9,7 @@ import { MeshBuilder } from './mesh';
 import { ArmyGate, barricadeMesh, barricadeRubble, bottleMesh, burningFlare, Effects, Evac, gearMesh, glint, SubwayExit, type StoryItem, pickupMesh, pulseGlint, storefrontMesh, storyItem, vehicleMesh, weaponMesh, wreckVehicle } from './props';
 import { currentTask, escortGroup, finalChapter, gunStats, isGun, isRevealed, playerSpeed, playerVehicle, requiredDone, type GameState } from '../core/state';
 import { ATTACK_WINDUP, MELEE, SAFEHOUSE_RADIUS, TASK_RADIUS } from '../core/config';
-import type { GameEvent, TaskId, Vec2, WeaponKind, Zombie } from '../core/types';
+import type { GameEvent, Task, TaskId, Vec2, WeaponKind, Zombie } from '../core/types';
 import { chapterInfo, stepDef } from '../core/content';
 
 const params = new URLSearchParams(location.search);
@@ -21,7 +21,8 @@ const POOL_LIGHTS = Math.max(0, Math.min(6, Number(params.get('lights') ?? 3)));
 /** Scenes where you crouch to work (the rest, you stand). */
 const KNEEL_SCENES = ['generator', 'gate', 'chained-gate', 'jerrycans', 'medkit', 'survivor-talk', 'fuse-box', 'junction-box', 'gas-valve', 'crossroads', 'fallen-guard', 'fallen-woman', 'fallen-soldier', 'crashed-bus', 'phone-booth'];
 const FOG = 0x0a0e16; // a dark night blue, not black: the far streets fade into it
-const MAX_VISIBLE_ZOMBIES = 12; // nearest ones get a skinned character; the rest are off screen anyway
+const MAX_VISIBLE_ZOMBIES = 20; // nearest ones get a skinned character; the rest are off screen anyway
+const MAX_VISIBLE_CORPSES = 12; // the nearest bodies are drawn (posed once, never animated again)
 
 /** Soft dark blob for contact shadows (generated). */
 function blobTexture(): CanvasTexture {
@@ -48,11 +49,15 @@ export class GameView {
   private zombies = new Map<number, Actor>();
   private actorPool: Actor[] = [];
   /** People at the steps: `alive` ones move (the fallen do not); `leaves` ones are gone once it is done. */
-  private extras: Array<{ actor: Actor; task: TaskId; alive: boolean; leaves: boolean }> = [];
+  private extras: Array<{ actor: Actor; task: TaskId; alive: boolean; leaves: boolean; door?: Vector3 }> = [];
+  /** Bodies in the street, by zombie id. */
+  private corpses = new Map<number, Actor>();
+  /** People walking in through a door (handed over), then gone. */
+  private walkers: Array<{ actor: Actor; to: Vector3 }> = [];
   /** Objective props that change with the task: items you take vanish, the gate swings open. */
   /** Things at each step. `scenery` stays whether or not the step is up yet; `part` is a fuse to find; `burning`
    * is the lit flare (only while it burns). */
-  private taskItems: Array<{ group: Group; task: TaskId; whenDone: boolean; scenery?: boolean; part?: number; burning?: boolean }> = [];
+  private taskItems: Array<{ group: Group; task: TaskId; whenDone: boolean; scenery?: boolean; always?: boolean; part?: number; burning?: boolean }> = [];
   /** The people following you to safety (one, or a group). */
   private escorts: Actor[] = [];
   private noraKey = '';
@@ -224,6 +229,10 @@ export class GameView {
     this.zombies.clear();
     for (const e of this.extras) { this.scene.remove(e.actor.root); e.actor.dispose(); }
     this.extras = [];
+    for (const a of this.corpses.values()) { this.scene.remove(a.root); this.actorPool.push(a); }
+    this.corpses.clear();
+    for (const w of this.walkers) { this.scene.remove(w.actor.root); w.actor.dispose(); }
+    this.walkers = [];
     this.taskItems = [];
     for (const v of this.survivors.values()) { this.scene.remove(v.actor.root); v.actor.dispose(); }
     this.survivors.clear();
@@ -306,12 +315,12 @@ export class GameView {
       return a;
     };
     const add = (task: TaskId, obj: Object3D, x: number, z: number, yaw: number, whenDone = false,
-      extra: { scenery?: boolean; part?: number; burning?: boolean; y?: number } = {}) => {
+      extra: { scenery?: boolean; always?: boolean; part?: number; burning?: boolean; y?: number } = {}) => {
       const g = obj instanceof Group ? obj : new Group().add(obj);
       g.position.set(x, extra.y ?? this.groundAt(s, { x, y: z }), z);
       g.rotation.y = yaw;
       out.add(g);
-      this.taskItems.push({ group: g, task, whenDone, scenery: extra.scenery, part: extra.part, burning: extra.burning });
+      this.taskItems.push({ group: g, task, whenDone, scenery: extra.scenery, always: extra.always, part: extra.part, burning: extra.burning });
     };
     const basic = (mb: MeshBuilder) => new Mesh(mb.build(), new MeshBasicMaterial({ vertexColors: true }));
     const lamp = (hex: number) => basic(new MeshBuilder().box(0, 0, 0, 0.14, 0.14, 0.14, hex));
@@ -332,6 +341,28 @@ export class GameView {
       add(id, bars(false), x + 1.25, z, Math.PI, false, { scenery: true });
       add(id, bars(true), x - 1.25, z, 0, true, { scenery: true });
       add(id, bars(true), x + 1.25, z, Math.PI, true, { scenery: true });
+    };
+
+    /**
+     * A doorway in the wall of the building the step stands against: a lit door, its frame, and the
+     * person who lives there in it (they go back inside, with whoever you brought, once it is done).
+     */
+    const doorway = (t: Task, lit: number, frame: number, who: 'humanMaleA' | 'humanFemaleA' | null, extra?: (d: MeshBuilder) => void) => {
+      const D = t.door ?? { x: t.pos.x, y: t.pos.y - 1.8 };
+      const nx = (t.pos.x - D.x) / 1.8, nz = (t.pos.y - D.y) / 1.8;
+      const gy = this.groundAt(s, t.pos);
+      const d = new MeshBuilder();
+      for (const u of [-1.05, 1.05]) d.box(u, 1.5, 0.12, 0.3, 3, 0.25, frame);
+      d.box(0, 3.0, 0.12, 2.4, 0.3, 0.25, frame).box(0, 0.05, 0.5, 2.2, 0.1, 0.8, 0x5a5c60);
+      extra?.(d);
+      const g = new Group().add(new Mesh(d.build(), new MeshLambertMaterial({ vertexColors: true })));
+      g.add(basic(new MeshBuilder().box(0, 1.4, 0.04, 1.8, 2.7, 0.04, lit)));
+      add(t.id, g, D.x, D.y, Math.atan2(nx, nz), false, { scenery: true, always: true, y: gy });
+      if (who) {
+        const a = person(t.id, who, 'Talk', { x: D.x + nx * 0.8, y: D.y + nz * 0.8 }, Math.PI / 2 - Math.atan2(nz, nx));
+        this.extras[this.extras.length - 1]!.door = new Vector3(D.x, 0, D.y);
+        void a;
+      }
     };
 
     for (const t of s.tasks) {
@@ -413,10 +444,9 @@ export class GameView {
           add(id, basic(new MeshBuilder().box(0.6, 0.18, 0, 0.18, 0.12, 0.18, 0xffe2a8)), x, z, 0, false, { scenery: true, y: gy + 0.8 });
           itemAt = null;
           break;
-        case 'security-door': // a steel door in a concrete wall, a keypad beside it
-          b.box(x, gy + 1.5, z - 0.3, 4, 3, 0.4, 0x6a6c70, 0x5a5c60).box(x, gy + 1.15, z - 0.08, 1.2, 2.3, 0.06, 0x3a4048);
-          b.box(x + 0.95, gy + 1.3, z - 0.07, 0.25, 0.35, 0.05, 0x222428);
-          lamps(id, x + 0.95, z - 0.03, gy + 1.55);
+        case 'security-door': // a steel door in the building's wall, a keypad beside it
+          doorway(t, 0x3a4048, 0x5a5c60, null, (d) => { d.box(1.1, 1.3, 0.06, 0.25, 0.35, 0.05, 0x222428); });
+          lamps(id, t.door ? t.door.x + (t.pos.y - t.door.y) / 1.8 * 1.1 : x, t.door ? t.door.y - (t.pos.x - t.door.x) / 1.8 * 1.1 : z, gy + 1.55);
           itemAt = null;
           break;
         case 'ambulance': // abandoned, back doors open; what you take sits on the step
@@ -438,16 +468,12 @@ export class GameView {
           if (t.escort) person(id, t.escort.skin, 'Kneel', { x, y: z }, 2.5, { leaves: true, scale: t.escort.scale });
           itemAt = null;
           break;
-        case 'mother': // a bakery doorway, lit; his mother waiting
-          b.box(x, gy + 1.6, z - 0.6, 3.2, 3.2, 0.3, 0x8a6a48, 0x9a7a58);
-          add(id, basic(new MeshBuilder().box(0, 1.1, 0, 1.6, 1.4, 0.04, 0xffd090)), x, z - 0.42, 0, false, { scenery: true });
-          person(id, 'humanFemaleA', 'Talk', { x, y: z + 0.6 }, -2.2);
+        case 'mother': // the bakery's doorway, lit; his mother at it
+          doorway(t, 0xffd090, 0x8a6a48, 'humanFemaleA', (d) => { d.box(0, 3.1, 0.45, 2.8, 0.12, 0.9, 0xa0342a); }); // an awning
           itemAt = null;
           break;
-        case 'shelter-door': // the school shelter's door, lit, a woman at it
-          b.box(x - 1.0, gy + 1.4, z - 0.5, 0.4, 2.8, 0.4, 0x8a8478).box(x + 1.0, gy + 1.4, z - 0.5, 0.4, 2.8, 0.4, 0x8a8478);
-          add(id, basic(new MeshBuilder().box(0, 1.2, 0, 1.6, 2.4, 0.04, 0xffc070)), x, z - 0.55, 0, false, { scenery: true });
-          person(id, 'humanFemaleA', 'Talk', { x, y: z + 0.4 }, -2.3);
+        case 'shelter-door': // the shelter's door, lit, someone at it
+          doorway(t, 0xffc070, 0x8a8478, 'humanFemaleA');
           itemAt = null;
           break;
         case 'loading-dock': // pallets, crates and a container
@@ -478,11 +504,8 @@ export class GameView {
           if (t.escort) person(id, t.escort.skin, 'Kneel', { x: t.pos.x + 0.4, y: t.pos.y + 0.4 }, 2.4, { leaves: true, scale: t.escort.scale });
           itemAt = null;
           break;
-        case 'church': // stone door frame, a warm lit doorway, a white cross above
-          b.box(x - 1.2, gy + 1.6, z, 0.5, 3.2, 0.5, 0x8a8478, 0x9a9488).box(x + 1.2, gy + 1.6, z, 0.5, 3.2, 0.5, 0x8a8478, 0x9a9488);
-          b.box(x, gy + 3.4, z, 3.0, 0.5, 0.6, 0x8a8478, 0x9a9488);
-          add(id, basic(new MeshBuilder().box(0, 1.4, 0, 1.9, 2.8, 0.05, 0xffc070)), x, z - 0.05, 0, false, { scenery: true });
-          add(id, basic(new MeshBuilder().box(0, 4.3, 0, 0.18, 1.1, 0.12, 0xf4f0e6).box(0, 4.5, 0, 0.7, 0.18, 0.12, 0xf4f0e6)), x, z, 0, false, { scenery: true });
+        case 'church': // a stone doorway, warm light, a white cross above; the priest waiting
+          doorway(t, 0xffc070, 0x8a8478, 'humanMaleA', (d) => { d.box(0, 4.0, 0.1, 0.18, 1.1, 0.12, 0xf4f0e6).box(0, 4.2, 0.1, 0.7, 0.18, 0.12, 0xf4f0e6); });
           itemAt = null;
           break;
         case 'survivor-talk': person(id, 'humanFemaleA', 'Talk', { x, y: z }, -2.2, { leaves: true }); itemAt = null; break;
@@ -715,7 +738,8 @@ export class GameView {
           it.group.getObjectByName('pool')!.scale.setScalar(k);
           it.group.getObjectByName('flame')!.scale.setScalar(1.3 + k * 0.5);
         }
-      } else if (it.scenery) it.group.visible = it.whenDone ? done : !done;
+      } else if (it.always) it.group.visible = true;
+      else if (it.scenery) it.group.visible = it.whenDone ? done : !done;
       else it.group.visible = it.whenDone ? done : !done && !!t && isRevealed(s, t);
       const gl = it.group.getObjectByName('glint');
       if (gl && it.group.visible) pulseGlint(gl, this.time, it.group.position.x * 0.13);
@@ -753,7 +777,8 @@ export class GameView {
       this.tmp.updateMatrix();
       this.shadows.setMatrixAt(shadowN++, this.tmp.matrix);
     };
-    if (!caught && !car) shadowAt(p.x, p.y);
+    if (this.outro) { const r = this.player.root; if (r.visible && r.position.y > -0.2) shadowAt(r.position.x, r.position.z); }
+    else if (!caught && !car) shadowAt(p.x, p.y);
     const reach = this.distance * this.zoom * 0.9;
     const visible = s.zombies
       .map((z) => ({ z, d: Math.abs(z.pos.x - this.focus.x) + Math.abs(z.pos.y - this.focus.z) }))
@@ -776,16 +801,40 @@ export class GameView {
       this.animateZombie(a, z);
       if (z.action !== 'dead') shadowAt(z.pos.x, z.pos.y);
       a.update(z.pos.x, z.pos.y, z.heading, dt, true);
-      // the dead lie where they fell, then sink away before they are gone
-      if (z.action === 'dead' && z.actionT < 1.5) a.root.position.y = -(1.5 - Math.max(0, z.actionT)) * 0.7;
     }
     for (const e of this.extras) {
       const t = s.tasks.find((x) => x.id === e.task);
-      // someone helped goes inside; someone found comes out of hiding and follows you
+      // someone at their door goes back inside; someone found comes out of hiding and follows you
+      if (e.door && t?.done) { if (e.actor.root.visible) this.walkIn(e.actor, e.door, dt); continue; }
       e.actor.root.visible = !(e.leaves && t?.done);
       e.actor.update(e.actor.root.position.x, e.actor.root.position.z, Math.PI / 2 - e.actor.root.rotation.y, dt, e.alive);
     }
     this.updateNora(s, dt);
+    this.walkers = this.walkers.filter((w) => {
+      this.walkIn(w.actor, w.to, dt);
+      if (w.actor.root.visible) return true;
+      this.scene.remove(w.actor.root);
+      w.actor.dispose();
+      return false;
+    });
+    // the dead stay where they fell: the nearest are drawn, posed at the end of their fall
+    const nearBodies = s.corpses
+      .map((c) => ({ c, d: Math.abs(c.pos.x - this.focus.x) + Math.abs(c.pos.y - this.focus.z) }))
+      .filter((q) => q.d < reach)
+      .sort((a, b) => a.d - b.d)
+      .slice(0, MAX_VISIBLE_CORPSES);
+    const bodies = new Set(nearBodies.map((q) => q.c.id));
+    for (const [id, a] of this.corpses) if (!bodies.has(id)) { this.scene.remove(a.root); this.corpses.delete(id); this.actorPool.push(a); }
+    for (const { c } of nearBodies) {
+      if (this.corpses.has(c.id)) continue;
+      const a = this.actorPool.pop() ?? new Actor(this.assets, 'zombieMaleA');
+      a.setSkin(c.id % 2 === 0 ? 'zombieMaleA' : 'zombieFemaleA');
+      a.reset();
+      a.play('Death', { once: true, fade: 0, startAt: 0.999 });
+      a.update(c.pos.x, c.pos.y, c.heading, 0.016, true);
+      this.corpses.set(c.id, a);
+      this.scene.add(a.root);
+    }
     this.shadows.count = shadowN;
     this.shadows.instanceMatrix.needsUpdate = true;
 
@@ -798,6 +847,18 @@ export class GameView {
   /** The people you are bringing in, following you (out of sight while they ride in your car). */
   private updateNora(s: GameState, dt: number): void {
     const group = escortGroup(s);
+    if (!group.length && this.escorts.length) {
+      // handed over: they go in through the door they were brought to
+      const home = s.tasks.filter((t) => t.effect === 'escort-end' && t.done && t.door)
+        .sort((a, b) => Math.hypot(a.door!.x - this.escorts[0]!.root.position.x, a.door!.y - this.escorts[0]!.root.position.z) - Math.hypot(b.door!.x - this.escorts[0]!.root.position.x, b.door!.y - this.escorts[0]!.root.position.z))[0];
+      for (const a of this.escorts) {
+        if (home && a.root.visible) this.walkers.push({ actor: a, to: new Vector3(home.door!.x, 0, home.door!.y) });
+        else { this.scene.remove(a.root); a.dispose(); }
+      }
+      this.escorts = [];
+      this.noraKey = '';
+      return;
+    }
     const key = group.map((e) => `${e.name}:${e.skin}:${e.scale}`).join();
     if (this.noraKey !== key) { // whoever is following you this time
       for (const a of this.escorts) { this.scene.remove(a.root); a.dispose(); }
@@ -810,8 +871,16 @@ export class GameView {
       });
       this.noraKey = key;
     }
+    const ride = playerVehicle(s);
     group.forEach((e, i) => {
       const a = this.escorts[i]!;
+      if (e.riding && ride?.kind === 'bike') { // pillion: behind you on the seat
+        a.root.visible = true;
+        a.play('Idle', { fade: 0.2 });
+        const back = 1.05 + i * 0.5;
+        a.update(ride.pos.x - Math.cos(ride.heading) * back, ride.pos.y - Math.sin(ride.heading) * back, ride.heading, dt, true);
+        return;
+      }
       a.root.visible = !e.riding;
       if (e.riding) return;
       if (e.speed > 3.2) a.play('Jog', { timeScale: a.rateFor('Jog', e.speed), fade: 0.2 });
@@ -819,6 +888,15 @@ export class GameView {
       else a.play('Idle', { fade: 0.3 });
       a.update(e.pos.x, e.pos.y, e.heading, dt, true);
     });
+  }
+
+  /** Walk someone to a door and in (hidden once there). */
+  private walkIn(a: Actor, to: Vector3, dt: number): void {
+    const p = a.root.position, dx = to.x - p.x, dz = to.z - p.z, d = Math.hypot(dx, dz);
+    if (d < 0.35) { a.root.visible = false; return; }
+    const step = Math.min(d, 2.6 * dt);
+    a.locomote(2.6);
+    a.update(p.x + (dx / d) * step, p.z + (dz / d) * step, Math.atan2(dz, dx), dt, true);
   }
 
   /** Protective gear shows on the player while it lasts. */
@@ -887,6 +965,12 @@ export class GameView {
   }
 
   /** The player walks themself out of the chapter: down the subway stairs, or up into the helicopter. */
+  /** The end-of-chapter scene has played to its end (the game can move on). */
+  outroDone(): boolean {
+    return !!this.outro && this.outro.t >= this.outroLen;
+  }
+  private outroLen = 99;
+
   private playOutro(s: GameState, dt: number): void {
     const o = this.outro!;
     o.t += dt;
@@ -900,6 +984,7 @@ export class GameView {
       const gate = this.exitKind === 'gate';
       const top = W(0, gate ? 4 : 3.3), bottom = W(0, gate ? -7 : -2.3);
       const tA = Math.min(1.4, Math.max(0.4, o.from.distanceTo(top) / 4));
+      this.outroLen = tA + 2.2;
       if (o.t < tA) { pos = o.from.clone().lerp(top, o.t / tA); heading = toward(o.from, top); speed = Math.min(3.5, o.from.distanceTo(top) / tA); }
       else { // down the steps, sinking into the dark
         const k = Math.min(1, (o.t - tA) / 2.2);
@@ -911,6 +996,7 @@ export class GameView {
       }
     } else {
       const B = GameView.BOARD;
+      this.outroLen = B.walk + B.check + B.board + 2.8; // and it is well up and away
       const checker = this.soldierPost(0).pos;
       const meet = checker.clone().add(o.from.clone().sub(checker).setY(0).normalize().multiplyScalar(1.5));
       const door = this.doorPoint();

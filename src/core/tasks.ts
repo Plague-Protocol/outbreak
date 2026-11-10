@@ -60,10 +60,33 @@ export function generateChain(rng: Rng, map: MapData, spawn: Vec2, safehouse: Ve
     return { x: p.x, y: p.y };
   };
 
+  // Doors: the middle of a building's side that faces open, reachable street, with a spot to stand at.
+  const blocked = (p: Vec2) => map.blocked[cellOf(map, p)] === 1 || (field[cellOf(map, p)] as number) === UNREACHABLE;
+  const doors: Array<{ door: Vec2; pos: Vec2 }> = [];
+  for (const b of map.buildings) {
+    if (b.kind !== 'house' && b.kind !== 'shop' && b.kind !== 'tower' && b.kind !== 'warehouse' && b.kind !== 'hospital') continue;
+    for (const [nx, ny] of [[0, 1], [0, -1], [1, 0], [-1, 0]] as const) {
+      const door = { x: b.x + b.w / 2 + (nx * b.w) / 2, y: b.y + b.h / 2 + (ny * b.h) / 2 };
+      const pos = { x: door.x + nx * 1.8, y: door.y + ny * 1.8 };
+      if ([1.8, 3.2].some((k) => blocked({ x: door.x + nx * k, y: door.y + ny * k }))) continue;
+      if (Math.hypot(pos.x - spawn.x, pos.y - spawn.y) < MIN_SPAWN_DISTANCE || Math.hypot(pos.x - safehouse.x, pos.y - safehouse.y) < MIN_SPAWN_DISTANCE) continue;
+      doors.push({ door, pos });
+    }
+  }
+  const placeDoor = (): { door?: Vec2; pos: Vec2 } => {
+    const order = shuffle(rng, doors);
+    const d = order.find((o) => placed.every((q) => Math.hypot(o.pos.x - q.x, o.pos.y - q.y) >= MIN_TASK_SEPARATION)) ?? order[0];
+    if (!d) return { pos: place() };
+    placed.push(d.pos);
+    return d;
+  };
+
   const make = (d: StepDef, requires: string[], required: boolean, code: string): Task => {
+    const at = d.door ? placeDoor() : { pos: place() };
     const t: Task = {
-      id: d.id, kind: d.kind, required, requires, pos: place(), timeCost: d.timeCost ?? 0, reward: d.reward ?? null, done: false, code,
+      id: d.id, kind: d.kind, required, requires, pos: at.pos, timeCost: d.timeCost ?? 0, reward: d.reward ?? null, done: false, code,
     };
+    if (at.door) t.door = at.door;
     if (d.seconds) t.seconds = d.seconds;
     if (d.effect) t.effect = d.effect;
     if (d.needsEscort) t.needsEscort = true;

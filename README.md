@@ -31,7 +31,10 @@ pixel ratio, `?lights=0..6` number of real point lights, `?zoom=N` camera span.
   you came into it with.
 - **People you bring in:** some steps hand you someone to protect (Nora, Leo, or the family of
   three, who follow in a line). If one of the infected gets hold of any of them for a second, it is
-  over (INFECTED). You are warned when one is on them; shoot it or get between them.
+  over (INFECTED). You are warned when one is on them; shoot it or get between them. They are
+  handed over at a real door (a home, the bakery, the shelter): whoever lives there waits in the
+  doorway, and everyone goes inside. A bike seats two besides you, a car three or more, a van six;
+  more than that and you need a bigger vehicle.
 - **Three parts of the city:** each chapter has its own look, layout and light, set in the content
   file (`story.chapters`: theme, exit, light). Chapter one is downtown under cold moonlight;
   chapter two the docks and rail yard (warehouses, containers, freight wagons on the tracks, orange
@@ -44,8 +47,12 @@ pixel ratio, `?lights=0..6` number of real point lights, `?zoom=N` camera span.
 - **Guards and the chase:** some objectives come up guarded, a pack milling over the item (or its
   pieces) until it sees or hears you (35% of steps in the first district, 60% in the last). Finding
   the map sets a pack hunting you from all round for 45 seconds: run for the way out. Pieces can be
-  grabbed from a car or bike, and nothing is ever parked on top of one. (The route bot, which never
-  dodges or fights, wins 33/40 first chapters and 6/20 last chapters with this.)
+  grabbed from a car or bike, and nothing is ever parked on top of one. (The route bot, which
+  shoots what comes close but never dodges, drives or buys, wins 22/40 first chapters and 7/20 last
+  chapters.)
+- **The infected:** a crowded town (up to 110, about 20 drawn at once). Walkers lurch at about
+  half your running speed, runners nearly match it; some run even in the first district. The dead
+  stay where they fall for the rest of the chapter.
 - **Move:** drag anywhere (floating stick) or WASD. A light push walks, a full push runs.
 - **Fire / swing:** hold FIRE (or Space). Aim assist picks the zombie in front of you. Gunfire
   is loud: everything within earshot comes looking. With a melee weapon the button reads SWING.
@@ -64,7 +71,10 @@ pixel ratio, `?lights=0..6` number of real point lights, `?zoom=N` camera span.
   Get slow near them and they **grab hold** (up to four), ride along clawing at it and drag its top
   speed down; drive fast to shake them off (a crash throws them). Once a car is beaten below 40%
   the glass is gone and the ones on it reach you. If it dies, you are thrown out among them. On a
-  bike nothing grabs the bike: they go for you. You are told this the first time you get in.
+  bike nothing grabs the bike: they go for you. You are told this the first time you get in. The
+  moment an engine starts, a swarm of runners comes out of the side streets ahead of you, and more
+  every 12 seconds while you drive; they run as fast as a car through the streets and for where it
+  is going, to get in front of it. Each one you hit slows you.
 - **Map:** the minimap (top right) is rotated to match the screen. Tap it or press M for the full
   city map (pauses the game).
 - **Weapons:** you start with a pistol and a police baton. Baseball bats, a machete, shotguns and
@@ -178,11 +188,11 @@ colour picker) at `/tools/models.html` under `npm run dev`.
 
 | | Budget | Measured (worst case: 18 zombies around the player) |
 |---|---|---|
-| Draw calls | <= 40 | 30-34 (city chunks in view, 12 zombie characters, player, a store, props) |
+| Draw calls | <= 60 | not yet re-measured since raising zombies drawn to 20 and adding 12 bodies (was 30-34 with 12) |
 | Triangles | <= 50,000 | ~34,500-41,700 (the debris of the abandoned city adds a few thousand) |
 | Real lights | small | hemisphere + moon + flashlight/headlights + fill + 3 pooled + muzzle flash |
-| Zombie characters drawn | 12 nearest | the rest are simulated or dormant, not drawn |
-| JS bundle (gzip) | <= 240 KB (raised from 220 on 2026-11-09) | 220.0 KB at start, in one file (the store 3.0 KB, full map 1.7 KB and puzzle pages 1.9 KB load when first needed; task content is 6 KB of JSON) |
+| Zombie characters drawn | 20 nearest, plus 12 nearest bodies (posed once, not animated) | the rest are simulated or dormant, not drawn |
+| JS bundle (gzip) | <= 240 KB (raised from 220 on 2026-11-09) | 221.3 KB at start, in one file (the store 3.0 KB, full map 1.7 KB and puzzle pages 1.9 KB load when first needed; task content is 6 KB of JSON) |
 | Character assets (gzip) | <= 450 KB | ~426 KB (GLB 282 KB + 4 skins 144 KB) |
 | Vehicle and weapon models (gzip) | <= 150 KB | 132 KB (622 KB raw); ~2,300 triangles a car, 500-1,200 a weapon |
 

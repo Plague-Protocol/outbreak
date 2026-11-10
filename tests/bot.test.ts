@@ -19,6 +19,9 @@ export function botInput(g: GameState, field: { target: Vec2 | null; f: Int16Arr
   // a clear step: stand your ground at it and shoot (aim assist picks them)
   if (t?.kind === 'clear' && t.targets && Math.hypot(t.pos.x - g.player.pos.x, t.pos.y - g.player.pos.y) < 4) return { dx: 0, dy: 0, fire: true };
   if (g.hold.taskId) return { dx: 0, dy: 0 };
+  // like a person: shoot what gets close (aim assist picks it), reload when empty, keep walking
+  const near = g.zombies.some((z) => z.action !== 'dead' && z.action !== 'rise' && Math.hypot(z.pos.x - g.player.pos.x, z.pos.y - g.player.pos.y) < 7);
+  const fire = near && g.player.vehicleId === null;
   if (!field.target || field.target.x !== target.x || field.target.y !== target.y) { field.target = target; field.f = withVehiclesBlocked(g, () => distanceField(g.map, target)); }
   const f = field.f!;
   const cols = g.map.cols;
@@ -27,11 +30,11 @@ export function botInput(g: GameState, field: { target: Vec2 | null; f: Int16Arr
   for (const n of [c - 1, c + 1, c - cols, c + cols]) {
     if (n >= 0 && n < f.length && (f[n] as number) < best) { best = f[n] as number; bc = n; }
   }
-  if (bc === c) return { dx: target.x - g.player.pos.x, dy: target.y - g.player.pos.y };
-  return { dx: (bc % cols) + 0.5 - g.player.pos.x, dy: Math.floor(bc / cols) + 0.5 - g.player.pos.y };
+  if (bc === c) return { dx: target.x - g.player.pos.x, dy: target.y - g.player.pos.y, fire };
+  return { dx: (bc % cols) + 0.5 - g.player.pos.x, dy: Math.floor(bc / cols) + 0.5 - g.player.pos.y, fire };
 }
 
-describe('tuning sanity (route-following bot, no dodging, no optional tasks)', () => {
+describe('tuning sanity (route-following bot that shoots what gets close, no dodging, no optional tasks)', () => {
   it('can win a good share of seeds, proving the clock is feasible', () => {
     let wins = 0, timeouts = 0, caught = 0, slack = 0;
     const N = 40;

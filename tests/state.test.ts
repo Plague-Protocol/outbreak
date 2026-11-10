@@ -260,6 +260,7 @@ describe('vehicles are not safe', () => {
     g.player.vehicleId = v.id;
     g.player.pos = { ...v.pos };
     g.nextZombieId = 100;
+    g.swarmT = 1e9; // no swarm: just the ones each test puts there
     return { g, v };
   };
 
@@ -832,5 +833,53 @@ describe('purity of src/core', () => {
       expect(code, f).not.toMatch(/Math\.random|Date\.now|performance\.now/);
       for (const m of code.matchAll(/from ['"]([^'"]+)['"]/g)) expect(m[1], f).toMatch(/^\.\//);
     }
+  });
+});
+
+describe('vehicles draw a crowd', () => {
+  const walker = (id: number, pos: Vec2): Zombie => ({ id, kind: 'walker', pos, heading: 0, speed: 0, action: 'idle', actionT: 0, cooldown: 0, health: 60, staggerT: 0, alertT: 0, wanderT: 9, wanderDir: { x: 0, y: 0 } });
+
+  it('starting an engine brings runners out of the side streets, fast', () => {
+    const g = calmGame(5);
+    const v = g.vehicles.find((x) => x.kind !== 'bike')!;
+    g.player.pos = { x: v.pos.x, y: v.pos.y + VEHICLES[v.kind].width / 2 + 0.8 };
+    while (interactionFor(g)?.kind !== 'enter') g.player.pos.y += 0.2;
+    step(g, USE, DT);
+    expect(g.events.some((e) => e.type === 'swarm')).toBe(true); // the moment you get in
+    const runners = g.zombies.filter((z) => z.kind === 'runner' && z.alertT > 0);
+    expect(runners.length).toBeGreaterThanOrEqual(6);
+    const before = runners.map((z) => ({ ...z.pos }));
+    for (let i = 0; i < 30; i++) step(g, IDLE, DT);
+    const moved = runners.map((z, i) => Math.hypot(z.pos.x - before[i]!.x, z.pos.y - before[i]!.y));
+    expect(Math.max(...moved)).toBeGreaterThan(6); // about a car's pace through the streets
+  });
+
+  it('a bike carries two besides you; three need a car', () => {
+    const g = calmGame(5);
+    const bike = g.vehicles[0]!;
+    bike.kind = 'bike';
+    const e = (name: string) => ({ pos: { x: bike.pos.x + 1, y: bike.pos.y + 1 }, heading: 0, speed: 0, riding: false, name, skin: 'humanMaleA' as const, scale: 1 });
+    g.escort = { ...e('Ade'), party: [e('Funmi'), e('Tobi')] };
+    g.player.pos = { x: bike.pos.x, y: bike.pos.y + VEHICLES.bike.width / 2 + 0.6 };
+    expect(interactionFor(g)?.kind).toBe('enter');
+    step(g, USE, DT);
+    expect(playerVehicle(g)).toBeNull();
+    expect(g.events).toContainEqual({ type: 'no-room', need: 3, seats: 2 });
+    g.escort.party = [e('Funmi')];
+    step(g, USE, DT);
+    expect(playerVehicle(g)).toBe(bike);
+    step(g, IDLE, DT);
+    expect(g.escort.riding && g.escort.party[0]!.riding).toBe(true);
+    void walker;
+  });
+
+  it('the dead stay where they fell', () => {
+    const g = calmGame(5);
+    g.zombies = [walker(300, { x: g.player.pos.x + 30, y: g.player.pos.y })];
+    g.zombies[0]!.action = 'dead';
+    g.zombies[0]!.actionT = 0.1;
+    for (let i = 0; i < 300; i++) step(g, IDLE, DT);
+    expect(g.zombies.length).toBe(0);
+    expect(g.corpses.map((c) => c.id)).toEqual([300]);
   });
 });

@@ -50,6 +50,7 @@ const talk = new Talk();
 const convo: Line[] = [];
 /** The engine warnings already given this night (once for a car, once for a bike). */
 const warned = new Set<string>();
+let swarmTold = false;
 const sound = new Sound();
 const hud = new Hud({
   retry: () => begin(restartChapter(state), false),
@@ -109,6 +110,7 @@ function begin(fresh: GameState, withIntro: boolean): void {
   storePage?.hide();
   if (talk.open) talk.close();
   convo.length = 0;
+  document.body.classList.remove('fade');
   setChapter(fresh.chapter);
   if (fresh.chapter === 0) warned.clear();
   paused = false;
@@ -253,6 +255,7 @@ function narrate(events: readonly GameEvent[]): void {
         hud.toast(e.loot === 'medkit' ? 'Medkit: +health' : e.loot === 'supplies' ? 'Supplies: +$25' : e.loot === 'ammo' ? 'Ammo' : 'Empty');
         break;
       case 'vehicle-enter': {
+        swarmTold = false;
         const v = state.vehicles.find((x) => x.id === e.id);
         const bike = v?.kind === 'bike';
         if (v && !warned.has(bike ? 'bike' : 'car')) { warned.add(bike ? 'bike' : 'car'); convo.push(...vehicleLines(bike)); }
@@ -261,6 +264,8 @@ function narrate(events: readonly GameEvent[]): void {
       }
       case 'latched': hud.toast(e.count > 1 ? `${e.count} hanging on! Speed up to shake them off.` : 'One grabbed hold! Speed up to shake it off.'); view.shake(0.3); break;
       case 'guarded': hud.toast(`${e.count} of them are standing over it. Thin them out or slip past.`); break;
+      case 'no-room': hud.toast(`${e.need} of them and room for ${e.seats}. Find a bigger car.`); break;
+      case 'swarm': if (!swarmTold) { swarmTold = true; hud.toast('The engine! They are pouring out of the side streets.'); } break;
       case 'escort-danger': hud.toast(`They're on ${e.name}! Get between them.`); break;
       case 'chase': hud.toast(`They have your scent. Run for ${finalChapter(state) ? 'the helicopter' : chapterInfo().way}!`); view.shake(0.5); break;
       case 'vehicle-breached': hud.toast('The glass is gone. They can reach you! Shake them off or get out.'); view.shake(0.6); break;
@@ -347,13 +352,15 @@ function frame(now: number): void {
       // let the moment play out before the ending card
       // won and cleared play out a scene first: met and checked by the soldiers, aboard, lifting off;
       // or walking down into the subway
-      endTimer = state.phase === 'won' ? 7.8 : state.phase === 'cleared' ? 3.8 : state.lossReason !== 'time' ? 2.6 : 1.2;
+      endTimer = state.phase === 'won' || state.phase === 'cleared' ? 30 : state.lossReason !== 'time' ? 2.6 : 1.2; // a scene ends when it has played
       if (state.phase === 'cleared' || state.phase === 'won') hud.cinema(true);
     }
   } else {
     acc = 0;
   }
   if (endTimer >= 0 && mode === 'play') {
+    // the scene has played out: fade to black into the next district, or straight to the ending
+    if (endTimer > 1 && view.outroDone()) { endTimer = state.phase === 'cleared' ? 0.6 : 0.3; if (state.phase === 'cleared') document.body.classList.add('fade'); }
     endTimer -= dt;
     if (endTimer < 0) { if (state.phase === 'cleared') advance(); else finish(); }
   }

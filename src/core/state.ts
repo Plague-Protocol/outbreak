@@ -5,7 +5,7 @@ import {
   RUN_OVER_SPEED, RUNNER_SIGHT, RUNNER_SPEED, SAFEHOUSE_RADIUS, SPAWNS_BY_TIER, SPEED_BOOST, TASK_HOLD_SECONDS,
   TASK_RADIUS, TIER_THRESHOLDS, USE_RADIUS, VEHICLES, WALKER_SIGHT_BY_TIER, WALKER_SPEED_BY_TIER, WAVE_SPAWN_MAX_DIST,
   ZOMBIE_ACTIVE_RADIUS, ZOMBIE_CAP, ZOMBIE_RADIUS, ZOMBIE_SPAWN_MIN_DIST, ZOMBIES_PER_BLOCK,
-  AIM_CONE, ALERT_SECONDS, BITE_SECONDS, BREACH_AT, CHASE, CHASE_ALERT, GUARD_CHANCE, GUARDS, BREACH_DAMAGE, ENGINE_NOISE, ENGINE_NOISE_EVERY, LATCH_DAMAGE, LATCH_DRAG, LATCH_EVERY, LATCH_GRIP,
+  AIM_CONE, ALERT_SECONDS, BITE_SECONDS, CORPSES_KEPT, SEATS, SWARM, SWARM_EVERY, SWARM_SPEED, BREACH_AT, CHASE, CHASE_ALERT, GUARD_CHANCE, GUARDS, BREACH_DAMAGE, ENGINE_NOISE, ENGINE_NOISE_EVERY, LATCH_DAMAGE, LATCH_DRAG, LATCH_EVERY, LATCH_GRIP,
   LATCH_MAX, LATCH_SHAKE_SPEED, AMMO_PRICES, GUNS, KILL_REWARD, MEDKIT_PRICE, MELEE, MELEE_KNOCKBACK, PICKUP_RADIUS,
   SAFE_AFTER, STAGGER_SECONDS, START_AMMO, START_FUNDS, STORE_DOOR_RADIUS, UPGRADE_BASE, UPGRADE_EFFECT, UPGRADE_FACTOR,
   UPGRADE_LEVELS, WEAPON_PRICES, ZOMBIE_HEALTH,
@@ -135,6 +135,10 @@ export interface GameState {
   engineT: number;
   /** Seconds until the next "they are on someone" warning. */
   dangerT: number;
+  /** Where the dead lie (bodies stay for the chapter). */
+  corpses: Array<{ id: number; pos: Vec2; heading: number }>;
+  /** Seconds to the next swarm while you drive. */
+  swarmT: number;
   /** Objectives already looked at for guards (each gets its chance once, when it comes up). */
   guarded: TaskId[];
   zombies: Zombie[];
@@ -199,6 +203,8 @@ export function createGame(
     engineT: 0,
     dangerT: 0,
     guarded: [],
+    corpses: [],
+    swarmT: 0,
     arsenal: cloneArsenal(carry.arsenal),
     pickups: level.pickups.map((p) => ({ ...p, pos: { ...p.pos } })),
     stores: level.stores.map((st) => ({ ...st, pos: { ...st.pos } })),
@@ -407,6 +413,20 @@ function guardCurrent(s: GameState): void {
   if (n) s.events.push({ type: 'guarded', id: t.id, count: n });
 }
 
+/** They heard the engine: runners come out of the side streets ahead of you and to the sides, to cut you off. */
+function releaseSwarm(s: GameState, v: Vehicle): void {
+  const n = SWARM[Math.min(s.chapter, SWARM.length - 1)]!;
+  const ahead = { x: v.pos.x + Math.cos(v.heading) * 20, y: v.pos.y + Math.sin(v.heading) * 20 };
+  const ring = s.map.points.filter((p) => { const d = dist(p, v.pos); return d >= 18 && d <= 40 && dist(p, ahead) < 30; });
+  let k = 0;
+  for (; k < n && roomFor(s); k++) {
+    const p = pick(s.rng, ring.length > 0 ? ring : s.map.points);
+    addZombie(s, 'runner', { x: p.x + range(s.rng, -2, 2), y: p.y + range(s.rng, -2, 2) }, false);
+    s.zombies[s.zombies.length - 1]!.alertT = 20;
+  }
+  if (k) s.events.push({ type: 'swarm', count: k });
+}
+
 /** The way out is shown: a pack comes hunting from all round, and keeps coming for a while. */
 function releaseChase(s: GameState): void {
   const c = CHASE[Math.min(s.chapter, CHASE.length - 1)]!;
@@ -493,6 +513,8 @@ export function step(s: GameState, input: Input, dt: number): GameState {
     drive(driving, input, dt, 1 - LATCH_DRAG * latchedOn(s, driving.id));
     burnFuel(s, driving, dt);
     s.engineT -= dt;
+    s.swarmT -= dt;
+    if (s.swarmT <= 0) { s.swarmT = SWARM_EVERY; releaseSwarm(s, driving); }
     if (s.engineT <= 0) { s.engineT = ENGINE_NOISE_EVERY; alertWithin(s, driving.kind === 'bike' ? ENGINE_NOISE.bike : ENGINE_NOISE.car); }
   }
   else movePlayer(s, input, dt);
@@ -581,12 +603,17 @@ function interact(s: GameState): void {
   if (!it) return;
   switch (it.kind) {
     case 'exit': exitVehicle(s); break;
-    case 'enter':
+    case 'enter': {
+      const v = s.vehicles.find((x) => x.id === it.vehicleId)!;
+      const need = escortGroup(s).length, seats = SEATS[v.kind];
+      if (need > seats) { s.events.push({ type: 'no-room', need, seats }); return; } // a car, then
       s.player.vehicleId = it.vehicleId;
+      s.swarmT = 0;
       s.hold.taskId = null;
       s.hold.progress = 0;
       s.events.push({ type: 'vehicle-enter', id: it.vehicleId });
       break;
+    }
     case 'task': {
       const t = s.tasks.find((x) => x.id === it.taskId)!;
       if (!depsMet(s, t)) {
@@ -1276,7 +1303,7 @@ function moveVehicle(s: GameState, v: Vehicle, dt: number, driven: boolean): voi
         z.actionT = CORPSE_SECONDS;
         z.speed = 0;
         z.heading = v.heading + Math.PI; // falls back from the bumper
-        v.speed *= 0.9;
+        v.speed *= 0.82;
         s.kills++;
         s.funds += KILL_REWARD;
         s.events.push({ type: 'zombie-killed', id: z.id });
@@ -1646,7 +1673,7 @@ function updateZombies(s: GameState, dt: number): void {
       z.cooldown = ATTACK_COOLDOWN;
       if (d >= ATTACK_REACH + reachBonus) continue; // missed
       if (car) {
-        if (Math.abs(car.speed) < LATCH_SHAKE_SPEED * 0.5 && !latchOn(s, z, car)) { // no room left on it: it beats on the body
+        if (Math.abs(car.speed) < 8.5 && !latchOn(s, z, car)) { // no room left on it: it beats on the body
           s.events.push({ type: 'vehicle-crash', id: car.id, force: 2 });
           damageVehicle(s, car, LATCH_DAMAGE);
         }
@@ -1689,9 +1716,9 @@ function updateZombies(s: GameState, dt: number): void {
     }
 
     const sight = z.alertT > 0 ? Infinity : z.kind === 'runner' ? RUNNER_SIGHT : WALKER_SIGHT_BY_TIER[s.tier]!;
-    const chaseSpeed = (z.kind === 'runner' ? RUNNER_SPEED : WALKER_SPEED_BY_TIER[s.tier]!) * s.zombieMul;
+    const chaseSpeed = (ride && z.alertT > 0 ? (z.kind === 'runner' ? SWARM_SPEED : WALKER_SPEED_BY_TIER[s.tier]! * 1.5) : z.kind === 'runner' ? RUNNER_SPEED : WALKER_SPEED_BY_TIER[s.tier]!) * s.zombieMul;
 
-    if (d < ATTACK_RANGE + reachBonus && z.cooldown <= 0 && !(ride && Math.abs(ride.speed) > 3)) {
+    if (d < ATTACK_RANGE + reachBonus && z.cooldown <= 0 && !(ride && Math.abs(ride.speed) > (car ? 8 : 3))) {
       z.action = 'attack';
       z.actionT = ATTACK_WINDUP[z.kind];
       z.speed = 0;
@@ -1707,7 +1734,10 @@ function updateZombies(s: GameState, dt: number): void {
       }
       v = chaseSpeed;
       if (d < 3 || lineClear(s.map, z.pos, p, ZOMBIE_RADIUS)) {
-        if (d > 1e-6) { vx = dx / d; vy = dy / d; }
+        // after a vehicle, they run for where it will be, to get in front of it
+        const lead = ride ? Math.min(1.2, d / 12) : 0;
+        const tx = dx + s.player.vel.x * lead, ty = dy + s.player.vel.y * lead, tl = Math.hypot(tx, ty);
+        if (tl > 1e-6) { vx = tx / tl; vy = ty / tl; }
       } else {
         // follow the BFS gradient toward the player through the streets
         const c = cellOf(s.map, z.pos);
@@ -1750,6 +1780,8 @@ function updateZombies(s: GameState, dt: number): void {
     if (vx !== 0 || vy !== 0) z.heading = Math.atan2(vy, vx);
     if (z.action === 'wander' && z.speed < v * 0.3) z.wanderT = 0; // hit a wall: turn next time
   }
+  for (const z of s.zombies) if (z.action === 'dead' && z.actionT <= 0) s.corpses.push({ id: z.id, pos: { ...z.pos }, heading: z.heading });
+  if (s.corpses.length > CORPSES_KEPT) s.corpses.splice(0, s.corpses.length - CORPSES_KEPT);
   s.zombies = s.zombies.filter((z) => z.action !== 'dead' || z.actionT > 0);
   separate(s);
 }

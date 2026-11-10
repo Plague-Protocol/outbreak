@@ -41,6 +41,8 @@ export interface StepDef extends StepText {
   item?: string;
   /** Different words in the last chapter (the map shows the landing zone, not a tunnel). */
   final?: Partial<StepText>;
+  /** It happens at someone's door: placed against a real building, the door in its wall. */
+  door?: boolean;
   /** Optional detours only. */
   timeCost?: number;
   reward?: 'speed' | 'calm' | 'funds';
